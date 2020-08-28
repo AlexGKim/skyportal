@@ -3,20 +3,62 @@ version: "3.7"
 services:
   web:
     image: skyportal/web
+    environment:
+      POSTGRES_USER: skyportal
+      POSTGRES_PASSWORD_FILE: /run/secrets/skyportal-initdb-password
+      POSTGRES_DB: skyportal
     ports:
       - "9000:5000"
       - "9001:5001"
+    cap_drop:
+    - ALL
+    cap_add:
+    - CHOWN
+    - DAC_OVERRIDE
+    - FOWNER
+    - NET_BIND_SERVICE
+    - SETGID
+    - SETUID    
+    secrets:
+    - mode: '0444'
+      uid: '0'
+      gid: '0'
+      source: db.skyportal.password
+      target: skyportal-initdb-password
 
   db:
     image: postgres:12.2
     environment:
       POSTGRES_USER: skyportal
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD_FILE: /run/secrets/skyportal-initdb-password
       POSTGRES_DB: skyportal
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - dbdata:/var/lib/postgresql/data/pgdata
     restart: on-failure:3
+    cap_drop:
+    - ALL
+    cap_add:
+    - CHOWN
+    - DAC_OVERRIDE
+    - FOWNER
+    - NET_BIND_SERVICE
+    - SETGID
+    - SETUID
+    secrets:
+    - mode: '0444'
+      uid: '0'
+      gid: '0'
+      source: db.skyportal.password
+      target: skyportal-initdb-password
 
 volumes:
   dbdata:
+#    driver: rancher-nfs
+    external: true
+
+
+secrets:
+  db.skyportal.password:
+    file: skyportal-initdb-password
+    #external: true
