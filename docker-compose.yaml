@@ -7,6 +7,10 @@ services:
       POSTGRES_USER: skyportal
       POSTGRES_PASSWORD_FILE: /run/secrets/skyportal-initdb-password
       POSTGRES_DB: skyportal
+    stdin_open: true
+    tty: true
+    labels:
+      io.rancher.container.pull_image: always
     ports:
       - "9000:5000"
       - "9001:5001"
@@ -18,7 +22,7 @@ services:
     - FOWNER
     - NET_BIND_SERVICE
     - SETGID
-    - SETUID    
+    - SETUID 
     secrets:
     - mode: '0444'
       uid: '0'
