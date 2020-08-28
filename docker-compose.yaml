@@ -55,7 +55,7 @@ services:
 volumes:
   dbdata:
 #    driver: rancher-nfs
-    external: true
+#    external: true
 
 
 secrets:
