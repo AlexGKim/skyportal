@@ -10,6 +10,7 @@ RUN apt-get update && \
     apt-get install -y python3 python3-venv python3-dev \
                        libpq-dev supervisor \
                        git nginx nodejs postgresql-client && \
+    ln -s /usr/bin/python3 /usr/bin/python && \ 
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
     useradd --create-home --shell /bin/bash skyportal
