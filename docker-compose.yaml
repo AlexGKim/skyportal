@@ -4,7 +4,7 @@ services:
   web:
     image: skyportal/web
     environment:
-      POSTGRES_USER: skyportal
+      POSTGRES_USER: 5279
       POSTGRES_PASSWORD_FILE: /run/secrets/skyportal-initdb-password
       POSTGRES_DB: skyportal
     stdin_open: true
@@ -33,7 +33,7 @@ services:
   db:
     image: postgres:12.2
     environment:
-      POSTGRES_USER: skyportal
+      POSTGRES_USER: 5279
       POSTGRES_PASSWORD_FILE: /run/secrets/skyportal-initdb-password
       POSTGRES_DB: skyportal
       PGDATA: /var/lib/postgresql/data/pgdata
@@ -58,9 +58,8 @@ services:
 
 volumes:
   dbdata:
-#    driver: rancher-nfs
-#    external: true
-
+    driver: rancher-nfs
+    external: true
 
 secrets:
   db.skyportal.password:
