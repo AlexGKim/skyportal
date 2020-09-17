@@ -1,9 +1,8 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useDispatch } from "react-redux";
-import { useHistory } from "react-router-dom";
+import { Link, useHistory } from "react-router-dom";
 import { makeStyles } from "@material-ui/core/styles";
 
-import Link from "@material-ui/core/Link";
 import TextField from "@material-ui/core/TextField";
 import Autocomplete from "@material-ui/lab/Autocomplete";
 import SearchIcon from "@material-ui/icons/Search";
@@ -12,10 +11,20 @@ import CircularProgress from "@material-ui/core/CircularProgress";
 
 import { GET } from "../API";
 
-const useStyles = makeStyles((theme) => ({
+const useStyles = makeStyles(() => ({
   root: {
-    background: "#6EB5DC",
-    marginRight: theme.spacing(1),
+    background: "#9394c3",
+    "& label": {
+      color: "black",
+    },
+    "& label.Mui-focused": {
+      color: "white",
+    },
+  },
+  label: {
+    "& label": {
+      color: "white",
+    },
   },
 }));
 
@@ -51,7 +60,7 @@ const QuickSearchBar = () => {
       dispatch(
         GET(
           `/api/sources?sourceID=${val}&pageNumber=1&totalMatches=25`,
-          "skyportal/FETCH_SOURCES"
+          "skyportal/FETCH_AUTOCOMPLETE_SOURCES"
         )
       );
     (async () => {
@@ -91,13 +100,11 @@ const QuickSearchBar = () => {
   return (
     <Autocomplete
       id="quick-search-bar"
-      style={{ width: 200 }}
+      style={{ width: "100%", padding: "0.5rem" }}
       getOptionSelected={(option, val) => option.name === val.name}
       getOptionLabel={(option) => option}
       onInputChange={(e, val) => {
-        if (e.constructor.name === "SyntheticEvent") {
-          setInputValue(val);
-        }
+        setInputValue(val);
       }}
       onChange={(event, newValue, reason) => {
         setValue(newValue);
@@ -125,7 +132,7 @@ const QuickSearchBar = () => {
       renderOption={(option) => {
         const v = `/source/${option}`;
         return (
-          <Link href={v} id={`quickSearchLinkTo${option}`} color="inherit">
+          <Link to={v} id={`quickSearchLinkTo${option}`} color="inherit">
             {option}
           </Link>
         );
@@ -136,7 +143,8 @@ const QuickSearchBar = () => {
           {...params}
           className={classes.root}
           variant="outlined"
-          label="Source ID Search"
+          placeholder="Source"
+          fullWidth
           InputProps={{
             ...params.InputProps,
             startAdornment: (

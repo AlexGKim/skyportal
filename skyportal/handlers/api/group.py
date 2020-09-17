@@ -1,8 +1,9 @@
 from sqlalchemy.orm import joinedload
 from marshmallow.exceptions import ValidationError
 from baselayer.app.access import permissions, auth_or_token
-from .user import add_user_and_setup_groups
+from baselayer.app.env import load_env
 from ..base import BaseHandler
+from .user import add_user_and_setup_groups
 from ...models import (
     DBSession,
     Filter,
@@ -12,7 +13,21 @@ from ...models import (
     Stream,
     User,
     Token,
+    StreamUser,
 )
+
+_, cfg = load_env()
+
+
+def has_admin_access_for_group(user, group_id):
+    groupuser = (
+        GroupUser.query.filter(GroupUser.group_id == group_id)
+        .filter(GroupUser.user_id == user.id)
+        .first()
+    )
+    return {"System admin", "Manage users", "Manage groups"}.intersection(
+        set(user.permissions)
+    ) or groupuser.admin
 
 
 class GroupHandler(BaseHandler):
@@ -83,6 +98,13 @@ class GroupHandler(BaseHandler):
                                 items:
                                   $ref: '#/components/schemas/Group'
                                 description: List of groups current user is a member of.
+                              user_accessible_groups:
+                                type: array
+                                items:
+                                  $ref: '#/components/schemas/Group'
+                                description: |
+                                  List of groups current user can access, not including
+                                  single user groups.
                               all_groups:
                                 type: array
                                 items:
@@ -97,16 +119,20 @@ class GroupHandler(BaseHandler):
                   schema: Error
         """
         if group_id is not None:
-            if 'Manage groups' in [acl.id for acl in self.current_user.acls]:
+            if has_admin_access_for_group(self.associated_user_object, group_id):
                 group = (
                     Group.query.options(joinedload(Group.users))
                     .options(joinedload(Group.group_users))
                     .get(group_id)
                 )
             else:
-                group = Group.query.options(
-                    [joinedload(Group.users).load_only(User.id, User.username)]
-                ).get(group_id)
+                group = (
+                    Group.query.options(
+                        [joinedload(Group.users).load_only(User.id, User.username)]
+                    )
+                    .options(joinedload(Group.group_users))
+                    .get(group_id)
+                )
                 if group is not None and group.id not in [
                     g.id for g in self.current_user.accessible_groups
                 ]:
@@ -142,7 +168,7 @@ class GroupHandler(BaseHandler):
             if not all(
                 [group in self.current_user.accessible_groups for group in groups]
             ):
-                return self.error("Insufficient permisisons")
+                return self.error("Insufficient permissions")
             return self.success(data=groups)
 
         include_single_user_groups = self.get_query_argument(
@@ -150,6 +176,9 @@ class GroupHandler(BaseHandler):
         )
         info = {}
         info['user_groups'] = list(self.current_user.groups)
+        info['user_accessible_groups'] = [
+            g for g in self.current_user.accessible_groups if not g.single_user_group
+        ]
         all_groups_query = Group.query
         if (not include_single_user_groups) or (
             isinstance(include_single_user_groups, str)
@@ -177,9 +206,9 @@ class GroupHandler(BaseHandler):
                       group_admins:
                         type: array
                         items:
-                          type: string
+                          type: integer
                         description: |
-                          List of emails of users to be group admins. Current user will
+                          List of IDs of users to be group admins. Current user will
                           automatically be added as a group admin.
         responses:
           200:
@@ -199,10 +228,13 @@ class GroupHandler(BaseHandler):
         """
         data = self.get_json()
 
-        group_admin_emails = [
-            e.strip() for e in data.get('group_admins', []) if e.strip()
-        ]
-        group_admins = list(User.query.filter(User.username.in_(group_admin_emails)))
+        try:
+            group_admin_ids = [int(e) for e in data.get('group_admins', [])]
+        except ValueError:
+            return self.error(
+                "Invalid group_admins field; unable to parse all items to int"
+            )
+        group_admins = User.query.filter(User.id.in_(group_admin_ids)).all()
         if self.current_user not in group_admins and not isinstance(
             self.current_user, Token
         ):
@@ -275,6 +307,8 @@ class GroupHandler(BaseHandler):
                 schema: Success
         """
         g = Group.query.get(group_id)
+        if g.name == cfg["misc"]["public_group_name"]:
+            return self.error("Cannot delete site-wide public group.")
         DBSession().delete(g)
         DBSession().commit()
 
@@ -286,7 +320,7 @@ class GroupHandler(BaseHandler):
 
 
 class GroupUserHandler(BaseHandler):
-    @permissions(['Manage groups'])
+    @auth_or_token
     def post(self, group_id, *ignored_args):
         """
         ---
@@ -332,6 +366,9 @@ class GroupUserHandler(BaseHandler):
                               type: boolean
                               description: Boolean indicating whether user is group admin
         """
+        if not has_admin_access_for_group(self.associated_user_object, group_id):
+            return self.error("Inadequate permissions.")
+
         data = self.get_json()
 
         username = data.pop("username", None)
@@ -352,20 +389,29 @@ class GroupUserHandler(BaseHandler):
             )
         else:
             user_id = user.id
-            # Just add new GroupUser
+            # Ensure user has sufficient stream access to be added to group
+            if group.streams and "System admin" not in user.permissions:
+                user_stream_ids = [
+                    su.stream_id
+                    for su in DBSession()
+                    .query(StreamUser)
+                    .filter(StreamUser.user_id == user.id)
+                    .all()
+                ]
+                if not all([stream.id in user_stream_ids for stream in group.streams]):
+                    return self.error(
+                        "User does not have sufficient stream access "
+                        "to be added to this group."
+                    )
+            # Add user to group
             gu = (
                 GroupUser.query.filter(GroupUser.group_id == group_id)
                 .filter(GroupUser.user_id == user_id)
                 .first()
             )
-            if gu is None:
-                DBSession.add(
-                    GroupUser(group_id=group_id, user_id=user_id, admin=admin)
-                )
-            else:
-                return self.error(
-                    "Specified user is already associated with this group."
-                )
+            if gu is not None:
+                return self.error("Specified user is already a member of this group.")
+            DBSession.add(GroupUser(group_id=group_id, user_id=user_id, admin=admin))
         DBSession().commit()
 
         self.push_all(action='skyportal/REFRESH_GROUP', payload={'group_id': group_id})
@@ -373,7 +419,7 @@ class GroupUserHandler(BaseHandler):
             data={'group_id': group_id, 'user_id': user_id, 'admin': admin}
         )
 
-    @permissions(['Manage groups'])
+    @permissions(["Manage users"])
     def delete(self, group_id, username):
         """
         ---
@@ -395,6 +441,9 @@ class GroupUserHandler(BaseHandler):
               application/json:
                 schema: Success
         """
+        if not has_admin_access_for_group(self.associated_user_object, group_id):
+            return self.error("Inadequate permissions.")
+
         group = Group.query.get(group_id)
         if group.single_user_group:
             return self.error("Cannot delete users from single user groups.")
@@ -467,13 +516,8 @@ class GroupStreamHandler(BaseHandler):
         if stream is None:
             return self.error("Specified stream_id does not exist.")
         else:
-            # todo: ensure all current group users have access to this stream
-            for user in group.users:
-                # get single user group
-                single_user_group = Group.query.filter(  # noqa
-                    Group.name == user.username
-                ).first()
-                # todo: do the check
+            # TODO ensure all current group users have access to this stream
+            # TODO do the check
 
             # Add new GroupStream
             gs = GroupStream.query.filter(

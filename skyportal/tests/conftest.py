@@ -8,15 +8,13 @@ from datetime import datetime
 
 from baselayer.app import models
 from baselayer.app.config import load_config
-from baselayer.app.test_util import (
+from baselayer.app.test_util import (  # noqa: F401
     driver,
-    MyCustomWebDriver,
     set_server_url,
-    reset_state,
 )
 
+from skyportal.tests.fixtures import TMP_DIR  # noqa: F401
 from skyportal.tests.fixtures import (
-    TMP_DIR,
     ObjFactory,
     StreamFactory,
     GroupFactory,
@@ -27,7 +25,15 @@ from skyportal.tests.fixtures import (
     TelescopeFactory,
 )
 from skyportal.model_util import create_token
-from skyportal.models import DBSession, Source, Candidate, Role
+from skyportal.models import (
+    DBSession,
+    Source,
+    Candidate,
+    Role,
+    User,
+    Allocation,
+    FollowupRequest,
+)
 
 import astroplan
 import warnings
@@ -41,6 +47,13 @@ set_server_url(f'http://localhost:{cfg["ports.app"]}')
 print("Setting test database to:", cfg["database"])
 models.init_db(**cfg["database"])
 
+# Add a "test factory" User so that all factory-generated comments have a
+# proper author, if it doesn't already exist (the user may already be in
+# there if running the test server and running tests individually)
+if not DBSession.query(User).filter(User.username == "test factory").scalar():
+    DBSession.add(User(username="test factory"))
+    DBSession.commit()
+
 
 def pytest_runtest_setup(item):
     # Print timestamp when running each test
@@ -51,7 +64,7 @@ def pytest_runtest_setup(item):
 def iers_data():
     # grab the latest earth orientation data for observatory calculations
     if ap_utils.IERS_A_in_cache():
-        with warnings.catch_warnings() as w:
+        with warnings.catch_warnings():
             warnings.filterwarnings(
                 "error", category=astroplan.OldEarthOrientationDataWarning
             )
@@ -67,6 +80,13 @@ def public_stream():
 
 
 @pytest.fixture()
+def stream_with_users(super_admin_user, group_admin_user, user, view_only_user):
+    return StreamFactory(
+        users=[super_admin_user, group_admin_user, user, view_only_user]
+    )
+
+
+@pytest.fixture()
 def public_group():
     return GroupFactory()
 
@@ -77,9 +97,22 @@ def public_group2():
 
 
 @pytest.fixture()
-def group_with_stream(super_admin_user, group_admin_user, public_stream):
+def group_with_stream(
+    super_admin_user, group_admin_user, user, view_only_user, public_stream
+):
     return GroupFactory(
-        users=[super_admin_user, group_admin_user], streams=[public_stream]
+        users=[super_admin_user, group_admin_user, user, view_only_user],
+        streams=[public_stream],
+    )
+
+
+@pytest.fixture()
+def group_with_stream_with_users(
+    super_admin_user, group_admin_user, user, view_only_user, stream_with_users
+):
+    return GroupFactory(
+        users=[super_admin_user, group_admin_user, user, view_only_user],
+        streams=[stream_with_users],
     )
 
 
@@ -190,6 +223,8 @@ def sedm(p60_telescope):
         telescope=p60_telescope,
         band='Optical',
         filters=['sdssu', 'sdssg', 'sdssr', 'sdssi'],
+        api_classname='SEDMAPI',
+        listener_classname='SEDMListener',
     )
 
 
@@ -208,6 +243,11 @@ def user(public_group):
     return UserFactory(
         groups=[public_group], roles=[models.Role.query.get("Full user")]
     )
+
+
+@pytest.fixture()
+def user_no_groups():
+    return UserFactory(roles=[models.Role.query.get("Full user")])
 
 
 @pytest.fixture()
@@ -374,5 +414,83 @@ def taxonomy_token_two_groups(user_two_groups):
 def comment_token_two_groups(user_two_groups):
     token_id = create_token(
         ACLs=["Comment"], user_id=user_two_groups.id, name=str(uuid.uuid4())
+    )
+    return token_id
+
+
+@pytest.fixture()
+def public_group_sedm_allocation(sedm, public_group):
+    allocation = Allocation(
+        instrument=sedm,
+        group=public_group,
+        pi=str(uuid.uuid4()),
+        proposal_id=str(uuid.uuid4()),
+        hours_allocated=100,
+    )
+    DBSession().add(allocation)
+    DBSession().commit()
+    return allocation
+
+
+@pytest.fixture()
+def public_group2_sedm_allocation(sedm, public_group2):
+    allocation = Allocation(
+        instrument=sedm,
+        group=public_group2,
+        pi=str(uuid.uuid4()),
+        proposal_id=str(uuid.uuid4()),
+        hours_allocated=100,
+    )
+    DBSession().add(allocation)
+    DBSession().commit()
+    return allocation
+
+
+@pytest.fixture()
+def public_source_followup_request(public_group_sedm_allocation, public_source, user):
+    fr = FollowupRequest(
+        obj=public_source,
+        allocation=public_group_sedm_allocation,
+        payload={
+            'priority': "5",
+            'start_date': '3020-09-01',
+            'end_date': '3022-09-01',
+            'observation_type': 'IFU',
+        },
+        requester_id=user.id,
+    )
+
+    DBSession().add(fr)
+    DBSession().commit()
+    return fr
+
+
+@pytest.fixture()
+def public_source_group2_followup_request(
+    public_group2_sedm_allocation, public_source_group2, user_two_groups
+):
+    fr = FollowupRequest(
+        obj=public_source_group2,
+        allocation=public_group2_sedm_allocation,
+        payload={
+            'priority': "5",
+            'start_date': '3020-09-01',
+            'end_date': '3022-09-01',
+            'observation_type': 'IFU',
+        },
+        requester_id=user_two_groups.id,
+    )
+
+    DBSession().add(fr)
+    DBSession().commit()
+    return fr
+
+
+@pytest.fixture()
+def sedm_listener_token(sedm, group_admin_user):
+    token_id = create_token(
+        ACLs=[sedm.listener_class.get_acl_id()],
+        user_id=group_admin_user.id,
+        name=str(uuid.uuid4()),
     )
     return token_id

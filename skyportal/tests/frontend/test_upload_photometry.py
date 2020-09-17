@@ -1,28 +1,37 @@
 import pytest
 from selenium.common.exceptions import ElementClickInterceptedException
-
-
-from .test_followup_requests import add_telescope_and_instrument
+from selenium.webdriver import ActionChains
 
 
 @pytest.mark.flaky(reruns=2)
 def test_upload_photometry(
-    driver, super_admin_user, public_source, super_admin_token, public_group
+    driver, sedm, super_admin_user, public_source, super_admin_token, public_group
 ):
-    data = add_telescope_and_instrument("P60 Camera", super_admin_token)
-    inst_id = data["id"]
+    inst_id = sedm.id
     driver.get(f"/become_user/{super_admin_user.id}")
     driver.get(f"/upload_photometry/{public_source.id}")
     csv_text_input = driver.wait_for_xpath('//textarea[@name="csvData"]')
     csv_text_input.send_keys(
         "mjd,flux,fluxerr,zp,magsys,filter\n"
-        "58001,55,1,25,ab,ztfg\n"
-        "58002,53,1,25,ab,ztfg"
+        "58001,55,1,25,ab,sdssg\n"
+        "58002,53,1,25,ab,sdssg"
     )
-    driver.wait_for_xpath('//*[@id="mui-component-select-instrumentID"]').click()
-    driver.wait_for_xpath_to_be_clickable(
-        f'//span[text()="P60 Camera (ID: {inst_id})"]'
-    ).click()
+
+    inst_select = driver.wait_for_xpath('//*[@id="mui-component-select-instrumentID"]')
+    driver.scroll_to_element(inst_select)
+    ActionChains(driver).move_to_element(inst_select).click().pause(2).perform()
+
+    sedm_element = driver.wait_for_xpath(f'//li[@data-value="{inst_id}"]')
+
+    driver.scroll_to_element(sedm_element)
+
+    # wait for the little animation - 2 seconds is plenty
+    ActionChains(driver).pause(2).perform()
+
+    # wait for the second little animation - 2 seconds is plenty
+    driver.scroll_to_element_and_click(sedm_element)
+    ActionChains(driver).pause(2).perform()
+
     driver.wait_for_xpath_to_be_clickable('//body').click()
     try:
         driver.wait_for_xpath_to_be_clickable('//div[@id="selectGroups"]').click()
@@ -48,6 +57,7 @@ def test_upload_photometry(
 @pytest.mark.flaky(reruns=2)
 def test_upload_photometry_multiple_groups(
     driver,
+    sedm,
     super_admin_user_two_groups,
     public_group,
     public_group2,
@@ -56,19 +66,31 @@ def test_upload_photometry_multiple_groups(
 ):
     user = super_admin_user_two_groups
     public_source = public_source_two_groups
-    data = add_telescope_and_instrument("P60 Camera", super_admin_token)
-    inst_id = data["id"]
+    inst_id = sedm.id
     driver.get(f"/become_user/{user.id}")
     driver.get(f"/upload_photometry/{public_source.id}")
     csv_text_input = driver.wait_for_xpath('//textarea[@name="csvData"]')
     csv_text_input.send_keys(
         "mjd,flux,fluxerr,zp,magsys,filter\n"
-        "58001,55,1,25,ab,ztfg\n"
-        "58002,53,1,25,ab,ztfg"
+        "58001,55,1,25,ab,sdssg\n"
+        "58002,53,1,25,ab,sdssg"
     )
-    driver.wait_for_xpath('//*[@id="mui-component-select-instrumentID"]').click()
-    driver.wait_for_xpath(f'//span[text()="P60 Camera (ID: {inst_id})"]').click()
+    inst_select = driver.wait_for_xpath('//*[@id="mui-component-select-instrumentID"]')
+    driver.scroll_to_element(inst_select)
+    ActionChains(driver).move_to_element(inst_select).click().pause(2).perform()
+
+    sedm_element = driver.wait_for_xpath(f'//li[@data-value="{inst_id}"]')
+
+    driver.scroll_to_element(sedm_element)
+
+    # wait for the little animation - 2 seconds is plenty
+    ActionChains(driver).pause(2).perform()
+    driver.scroll_to_element_and_click(sedm_element)
+
+    # wait for the second little animation - 2 seconds is plenty
+    ActionChains(driver).pause(2).perform()
     driver.wait_for_xpath_to_be_clickable('//body').click()
+
     try:
         driver.wait_for_xpath_to_be_clickable('//div[@id="selectGroups"]').click()
     except ElementClickInterceptedException:
@@ -95,21 +117,34 @@ def test_upload_photometry_multiple_groups(
 
 @pytest.mark.flaky(reruns=2)
 def test_upload_photometry_with_altdata(
-    driver, super_admin_user, public_source, super_admin_token, public_group
+    driver, sedm, super_admin_user, public_source, super_admin_token, public_group
 ):
-    data = add_telescope_and_instrument("P60 Camera", super_admin_token)
-    inst_id = data["id"]
+    inst_id = sedm.id
     driver.get(f"/become_user/{super_admin_user.id}")
     driver.get(f"/upload_photometry/{public_source.id}")
     csv_text_input = driver.wait_for_xpath('//textarea[@name="csvData"]')
     csv_text_input.send_keys(
         "mjd,flux,fluxerr,zp,magsys,filter,altdata.meta1,altdata.meta2\n"
-        "58001,55,1,25,ab,ztfg,44.4,\"abc,abc\"\n"
-        "58002,53,1,25,ab,ztfg,44.2,\"edf,edf\""
+        "58001,55,1,25,ab,sdssg,44.4,\"abc,abc\"\n"
+        "58002,53,1,25,ab,sdssg,44.2,\"edf,edf\""
     )
-    driver.wait_for_xpath('//*[@id="mui-component-select-instrumentID"]').click()
-    driver.wait_for_xpath(f'//span[text()="P60 Camera (ID: {inst_id})"]').click()
+    inst_select = driver.wait_for_xpath('//*[@id="mui-component-select-instrumentID"]')
+    driver.scroll_to_element(inst_select)
+    ActionChains(driver).move_to_element(inst_select).click().pause(2).perform()
+
+    sedm_element = driver.wait_for_xpath(f'//li[@data-value="{inst_id}"]')
+
+    driver.scroll_to_element(sedm_element)
+
+    # wait for the little animation - 2 seconds is plenty
+    ActionChains(driver).pause(2).perform()
+    driver.scroll_to_element_and_click(sedm_element)
+
+    # wait for the second little animation - 2 seconds is plenty
+    ActionChains(driver).pause(2).perform()
+
     driver.wait_for_xpath_to_be_clickable('//body').click()
+
     try:
         driver.wait_for_xpath_to_be_clickable('//div[@id="selectGroups"]').click()
     except ElementClickInterceptedException:
@@ -133,17 +168,16 @@ def test_upload_photometry_with_altdata(
 
 @pytest.mark.flaky(reruns=2)
 def test_upload_photometry_form_validation(
-    driver, super_admin_user, public_source, super_admin_token, public_group
+    driver, sedm, super_admin_user, public_source, super_admin_token, public_group
 ):
-    data = add_telescope_and_instrument("P60 Camera", super_admin_token)
-    inst_id = data["id"]
+    inst_id = sedm.id
     driver.get(f"/become_user/{super_admin_user.id}")
     driver.get(f"/upload_photometry/{public_source.id}")
     csv_text_input = driver.wait_for_xpath('//textarea[@name="csvData"]')
     csv_text_input.send_keys(
         "mjd,flux,fluxerr,zp,magsys,OTHER\n"
-        "58001,55,1,25,ab,ztfg\n"
-        "58002,53,1,25,ab,ztfg"
+        "58001,55,1,25,ab,sdssg\n"
+        "58002,53,1,25,ab,sdssg"
     )
     driver.wait_for_xpath('//*[text()="Preview in Tabular Form"]').click()
     driver.wait_for_xpath(
@@ -152,7 +186,7 @@ def test_upload_photometry_form_validation(
     csv_text_input.clear()
     csv_text_input.send_keys(
         "mjd,flux,fluxerr,zp,magsys,filter\n"
-        "58001,55,1,25,ab,ztfg\n"
+        "58001,55,1,25,ab,sdssg\n"
         "58002,53,1,25,ab"
     )
     driver.wait_for_xpath(
@@ -166,12 +200,29 @@ def test_upload_photometry_form_validation(
     csv_text_input.clear()
     csv_text_input.send_keys(
         "mjd,flux,fluxerr,zp,magsys,filter\n"
-        "58001,55,1,25,ab,ztfg\n"
-        "58002,53,1,25,ab,ztfg"
+        "58001,55,1,25,ab,sdssg\n"
+        "58002,53,1,25,ab,sdssg"
     )
     driver.wait_for_xpath('//div[contains(.,"Select an instrument")]')
-    driver.wait_for_xpath('//*[@id="mui-component-select-instrumentID"]').click()
-    driver.wait_for_xpath(f'//span[text()="P60 Camera (ID: {inst_id})"]').click()
+
+    inst_select = driver.wait_for_xpath('//*[@id="mui-component-select-instrumentID"]')
+    driver.scroll_to_element(inst_select)
+    ActionChains(driver).move_to_element(inst_select).click().pause(2).perform()
+
+    sedm_element = driver.wait_for_xpath(f'//li[@data-value="{inst_id}"]')
+
+    driver.scroll_to_element(sedm_element)
+
+    # wait for the little animation - 2 seconds is plenty
+    ActionChains(driver).pause(2).perform()
+
+    driver.scroll_to_element_and_click(sedm_element)
+
+    # wait for the second little animation - 2 seconds is plenty
+    ActionChains(driver).pause(2).perform()
+
+    driver.wait_for_xpath_to_be_clickable('//body').click()
+
     driver.wait_for_xpath('//div[contains(.,"Select at least one group")]')
     driver.wait_for_xpath_to_be_clickable('//body').click()
     try:

@@ -1,6 +1,6 @@
 import uuid
 import pytest
-
+from selenium.webdriver.common.action_chains import ActionChains
 from skyportal.tests import api
 
 
@@ -39,10 +39,13 @@ def test_news_feed(
     driver.get('/')
     driver.wait_for_xpath(f'//span[text()="a few seconds ago"]')
     for i in range(2):
-        driver.wait_for_xpath(f'//span[text()="New source {obj_id_base}_{i}"]')
+        # Source added item
         driver.wait_for_xpath(
-            f'//span[contains(text(),"comment_text_{i} ({obj_id_base}_{i})")]'
+            f'//div[contains(@class, "NewsFeed__entryContent")][.//p[text()="New source added"]][.//a[@href="/source/{obj_id_base}_{i}"]]'
         )
+
+        # Comment item
+        driver.wait_for_xpath(f'//p[contains(text(),"comment_text_{i}")]')
 
 
 @pytest.mark.flaky(reruns=2)
@@ -80,22 +83,24 @@ def test_news_feed_prefs_widget(
     driver.get('/')
     driver.wait_for_xpath('//span[text()="a few seconds ago"]')
     for i in range(2):
-        driver.wait_for_xpath(f'//span[text()="New source {obj_id_base}_{i}"]')
+        # Source added item
         driver.wait_for_xpath(
-            f'//span[contains(text(),"comment_text_{i} ({obj_id_base}_{i})")]'
+            f'//div[contains(@class, "NewsFeed__entryContent")][.//p[text()="New source added"]][.//a[@href="/source/{obj_id_base}_{i}"]]'
         )
-    prefs_widget_button = driver.wait_for_xpath('//*[@id="newsFeedSettingsIcon"]')
-    driver.scroll_to_element_and_click(prefs_widget_button)
-    n_items_input = driver.wait_for_xpath('//input[@name="numItems"]')
+
+        # Comment item
+        driver.wait_for_xpath(f'//p[contains(text(),"comment_text_{i}")]')
+
+    driver.wait_for_xpath('//*[@id="newsFeedSettingsIcon"]').click()
+    n_items_input = driver.wait_for_xpath('//input[@id="numItems"]')
     n_items_input.clear()
-    n_items_input.send_keys("2")
-    widget_save_button = driver.wait_for_xpath('//button[contains(., "Save")]')
-    widget_save_button.click()
-    driver.wait_for_xpath_to_disappear(f'//span[text()="New source {obj_id_base}_0"]')
-    prefs_widget_button.click()
-    n_items_input = driver.wait_for_xpath('//input[@name="numItems"]')
+    ActionChains(driver).click(n_items_input).send_keys("2").perform()
+    driver.click_xpath('//button[contains(., "Save")]')
+    source_added_item_xpath = f'//div[contains(@class, "NewsFeed__entryContent")][.//p[text()="New source added"]][.//a[@href="/source/{obj_id_base}_0"]]'
+    driver.wait_for_xpath_to_disappear(source_added_item_xpath)
+    driver.wait_for_xpath('//*[@id="newsFeedSettingsIcon"]').click()
+    n_items_input = driver.wait_for_xpath('//input[@id="numItems"]')
     n_items_input.clear()
-    n_items_input.send_keys("4")
-    widget_save_button = driver.wait_for_xpath('//button[contains(., "Save")]')
-    widget_save_button.click()
-    driver.wait_for_xpath(f'//span[text()="New source {obj_id_base}_0"]')
+    ActionChains(driver).send_keys_to_element(n_items_input, "4").perform()
+    driver.click_xpath('//button[contains(., "Save")]')
+    driver.wait_for_xpath(source_added_item_xpath)

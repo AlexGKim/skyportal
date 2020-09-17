@@ -49,6 +49,9 @@ RUN bash -c "\
     mkdir -p  /.npm && \
     chown -R 5213:0 /.npm && \
     \
+    mkdir -p /skyportal/static/thumbnails && \
+    chown -R skyportal.skyportal /skyportal/static/thumbnails && \
+    \
     cp docker.yaml config.yaml"
 
 USER skyportal

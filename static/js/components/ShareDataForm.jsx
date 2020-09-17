@@ -18,8 +18,7 @@ import Plot from "./Plot";
 import * as photometryActions from "../ducks/photometry";
 import * as spectraActions from "../ducks/spectra";
 import * as sourceActions from "../ducks/source";
-import * as groupsActions from "../ducks/groups";
-import styles from "./Source.css";
+import { useSourceStyles } from "./SourceDesktop";
 
 const createPhotRow = (
   id,
@@ -74,6 +73,7 @@ const useStyles = makeStyles(() => ({
 
 const ShareDataForm = ({ route }) => {
   const classes = useStyles();
+  const styles = useSourceStyles();
   const dispatch = useDispatch();
   const [selectedPhotRows, setSelectedPhotRows] = useState([]);
   const [selectedSpecRows, setSelectedSpecRows] = useState([]);
@@ -87,7 +87,6 @@ const ShareDataForm = ({ route }) => {
   useEffect(() => {
     dispatch(photometryActions.fetchSourcePhotometry(route.id));
     dispatch(spectraActions.fetchSourceSpectra(route.id));
-    dispatch(groupsActions.fetchGroups(true));
   }, [route.id, dispatch]);
 
   const validateGroups = () => {

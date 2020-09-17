@@ -1,10 +1,19 @@
 .source {
 }
 
+.displayInlineBlock {
+  display: inline-block;
+}
+
+.center {
+  margin: auto;
+  padding: 0.625rem;
+}
+
 .leftColumn {
   display: inline-block;
   vertical-align: top;
-  width: 900px;
+  width: auto;
   padding-right: 1em;
 }
 
@@ -23,17 +32,18 @@
 }
 
 .plot {
-  width: 900px;
+  width: 56.25rem;
   overflow: auto;
 }
 
 .smallPlot {
-  width: 350px;
+  width: 21.875rem;
   overflow: auto;
 }
 
 .comments {
 }
 
-.classifications {
+.tableContainer {
+  margin: 0.625rem;
 }

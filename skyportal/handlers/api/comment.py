@@ -2,7 +2,7 @@ import base64
 from marshmallow.exceptions import ValidationError
 from baselayer.app.access import permissions, auth_or_token
 from ..base import BaseHandler
-from ...models import DBSession, Source, Comment, Group
+from ...models import DBSession, Source, Comment, Group, Candidate, Filter
 
 
 class CommentHandler(BaseHandler):
@@ -84,18 +84,58 @@ class CommentHandler(BaseHandler):
                               description: New comment ID
         """
         data = self.get_json()
-        obj_id = data['obj_id']
+        obj_id = data.get("obj_id")
+        if obj_id is None:
+            return self.error("Missing required field `obj_id`")
+        comment_text = data.get("text")
         # Ensure user/token has access to parent source
-        _ = Source.get_obj_if_owned_by(obj_id, self.current_user)
-        user_group_ids = [g.id for g in self.current_user.groups]
+        obj = Source.get_obj_if_owned_by(obj_id, self.current_user)
         user_accessible_group_ids = [g.id for g in self.current_user.accessible_groups]
-        group_ids = data.pop("group_ids", user_group_ids)
-        group_ids = [gid for gid in group_ids if gid in user_accessible_group_ids]
+        user_accessible_filter_ids = [
+            filtr.id
+            for g in self.current_user.accessible_groups
+            for filtr in g.filters
+            if g.filters is not None
+        ]
+        group_ids = [int(id) for id in data.pop("group_ids", user_accessible_group_ids)]
+        group_ids = set(group_ids).intersection(user_accessible_group_ids)
         if not group_ids:
             return self.error(
                 f"Invalid group IDs field ({group_ids}): "
                 "You must provide one or more valid group IDs."
             )
+
+        # Only post to groups source/candidate is actually associated with
+        if DBSession().query(Candidate).filter(Candidate.obj_id == obj_id).all():
+            candidate_group_ids = [
+                f.group_id
+                for f in (
+                    DBSession()
+                    .query(Filter)
+                    .filter(Filter.id.in_(user_accessible_filter_ids))
+                    .filter(
+                        Filter.id.in_(
+                            DBSession()
+                            .query(Candidate.filter_id)
+                            .filter(Candidate.obj_id == obj_id)
+                        )
+                    )
+                    .all()
+                )
+            ]
+        else:
+            candidate_group_ids = []
+        matching_sources = (
+            DBSession().query(Source).filter(Source.obj_id == obj_id).all()
+        )
+        if matching_sources:
+            source_group_ids = [source.group_id for source in matching_sources]
+        else:
+            source_group_ids = []
+        group_ids = set(group_ids).intersection(candidate_group_ids + source_group_ids)
+        if not group_ids:
+            return self.error("Obj is not associated with any of the specified groups.")
+
         groups = Group.query.filter(Group.id.in_(group_ids)).all()
         if 'attachment' in data and 'body' in data['attachment']:
             attachment_bytes = str.encode(
@@ -105,9 +145,9 @@ class CommentHandler(BaseHandler):
         else:
             attachment_bytes, attachment_name = None, None
 
-        author = self.associated_user_object.username
+        author = self.associated_user_object
         comment = Comment(
-            text=data['text'],
+            text=comment_text,
             obj_id=obj_id,
             attachment_bytes=attachment_bytes,
             attachment_name=attachment_name,
@@ -116,10 +156,19 @@ class CommentHandler(BaseHandler):
         )
 
         DBSession().add(comment)
+        if comment_text.startswith("z="):
+            try:
+                redshift = float(comment_text.strip().split("z=")[1])
+            except ValueError:
+                return self.error(
+                    "Invalid redshift value provided; unable to cast to float"
+                )
+            obj.redshift = redshift
         DBSession().commit()
 
         self.push_all(
-            action='skyportal/REFRESH_SOURCE', payload={'obj_id': comment.obj_id}
+            action='skyportal/REFRESH_SOURCE',
+            payload={'obj_key': comment.obj.internal_key},
         )
         return self.success(data={'comment_id': comment.id})
 
@@ -171,26 +220,26 @@ class CommentHandler(BaseHandler):
         try:
             schema.load(data, partial=True)
         except ValidationError as e:
-            return self.error(
-                'Invalid/missing parameters: ' f'{e.normalized_messages()}'
-            )
+            return self.error(f'Invalid/missing parameters: {e.normalized_messages()}')
         DBSession().flush()
         if group_ids is not None:
             c = Comment.get_if_owned_by(comment_id, self.current_user)
             groups = Group.query.filter(Group.id.in_(group_ids)).all()
             if not groups:
                 return self.error(
-                    "Invalid group_ids field. " "Specify at least one valid group ID."
+                    "Invalid group_ids field. Specify at least one valid group ID."
                 )
             if not all(
                 [group in self.current_user.accessible_groups for group in groups]
             ):
                 return self.error(
-                    "Cannot associate comment with groups you are " "not a member of."
+                    "Cannot associate comment with groups you are not a member of."
                 )
             c.groups = groups
         DBSession().commit()
-        self.push_all(action='skyportal/REFRESH_SOURCE', payload={'obj_id': c.obj_id})
+        self.push_all(
+            action='skyportal/REFRESH_SOURCE', payload={'obj_key': c.obj.internal_key}
+        )
         return self.success()
 
     @permissions(['Comment'])
@@ -210,19 +259,19 @@ class CommentHandler(BaseHandler):
               application/json:
                 schema: Success
         """
-        user = self.associated_user_object.username
-        acls = [acl.id for acl in self.current_user.acls]
+        user = self.associated_user_object
         c = Comment.query.get(comment_id)
         if c is None:
             return self.error("Invalid comment ID")
-        obj_id = c.obj_id
-        author = c.author
-        if ("System admin" in acls or "Manage groups" in acls) or (user == author):
+        obj_key = c.obj.internal_key
+        if (
+            "System admin" in user.permissions or "Manage groups" in user.permissions
+        ) or (c.author == user):
             Comment.query.filter_by(id=comment_id).delete()
             DBSession().commit()
         else:
             return self.error('Insufficient user permissions.')
-        self.push_all(action='skyportal/REFRESH_SOURCE', payload={'obj_id': obj_id})
+        self.push_all(action='skyportal/REFRESH_SOURCE', payload={'obj_key': obj_key})
         return self.success()
 
 

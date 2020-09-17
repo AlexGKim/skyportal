@@ -2,6 +2,7 @@
 log/
 .log
 .cache
+cache/
 static/build
 doc/_build
 doc/openapi.html
@@ -15,7 +16,7 @@ geckodriver.log
 __pycache__/
 node_modules/
 *.pyc
-./config.yaml
+config.yaml
 static/thumbnails
 *.lock
 *.dirlock
@@ -27,8 +28,13 @@ skyportal_image_cache
 # Templated files
 static/js/components/Main.jsx
 static/js/components/SidebarAndHeader.jsx
+static/js/components/HeaderContent.jsx
+static/js/components/HomePage.jsx
+static/login.html
+static/index.html
 .tokens.yaml
 # Auto-generated data files
 data/taxonomy_sitewide.yaml
 data/taxonomy_demo.yaml
 .idea
+doc/images/erd.png

@@ -31,7 +31,24 @@ export function observingRunTitle(
 
   const group = groups?.filter((g) => g.id === observingRun.group_id)[0];
 
-  return `${observingRun?.calendar_date} ${instrument?.name}/${telescope?.nickname} (PI: ${observingRun?.pi} ${group?.name})`;
+  if (!(observingRun?.calendar_date && instrument?.name && telescope?.name)) {
+    return "Loading ...";
+  }
+
+  let result = `${observingRun?.calendar_date} ${instrument?.name}/${telescope?.nickname}`;
+
+  if (observingRun?.pi || group?.name) {
+    result += " (";
+    if (observingRun?.pi) {
+      result += `PI: ${observingRun.pi}`;
+    }
+    if (group?.name) {
+      result += ` / Group: ${group?.name}`;
+    }
+    result += ")";
+  }
+
+  return result;
 }
 
 const AssignmentForm = ({ obj_id, observingRunList }) => {
@@ -50,6 +67,11 @@ const AssignmentForm = ({ obj_id, observingRunList }) => {
     formControl: {
       margin: theme.spacing(1),
       minWidth: 120,
+    },
+    formContainer: {
+      display: "flex",
+      flexFlow: "row wrap",
+      alignItems: "center",
     },
   }));
   const classes = useStyles();
@@ -79,7 +101,7 @@ const AssignmentForm = ({ obj_id, observingRunList }) => {
     <div>
       <form onSubmit={handleSubmit(onSubmit)}>
         <h3>Assign Target to Observing Run</h3>
-        <div>
+        <div className={classes.formContainer}>
           <FormControl className={classes.formControl}>
             <InputLabel id="assignmentSelectLabel">Choose Run</InputLabel>
             <Controller
@@ -129,6 +151,7 @@ const AssignmentForm = ({ obj_id, observingRunList }) => {
             multiline
             defaultValue=""
             name="comment"
+            size="small"
             inputRef={register}
           />
           <Button
