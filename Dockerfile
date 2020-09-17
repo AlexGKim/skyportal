@@ -50,9 +50,6 @@ RUN bash -c "\
     \
     cp docker.yaml config.yaml"
 
-# RUN useradd skyportal
-# RUN chown -R skyportal: /
-# RUN chmod 777 /
 USER skyportal
 
 EXPOSE 5000
