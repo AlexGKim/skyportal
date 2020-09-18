@@ -3,19 +3,33 @@ version: "3.7"
 services:
   web:
     image: skyportal/web
+    environment:
+      SKYPORTAL_DATABASE_USER_FILE: /run/secrets/skyportal-database-user
+      SKYPORTAL_DATABASE_PASSWORD_FILE: /run/secrets/skyportal-database-password
     ports:
       - "9000:5000"
       - "9001:5001"
+    secrets:
+      - skyportal-database-user
+      - skyportal-database-password
     volumes:
       - thumbnails:/skyportal/static/thumbnails
 
   db:
     image: postgres:12.2
     environment:
-      POSTGRES_USER: skyportal
-      POSTGRES_PASSWORD: password
+      POSTGRES_USER_FILE: /run/secrets/skyportal-database-user
+      POSTGRES_PASSWORD_FILE: /run/secrets/skyportal-database-password
       POSTGRES_DB: skyportal
       PGDATA: /var/lib/postgresql/data/pgdata
+#   environment:
+#     POSTGRES_USER: skyportal
+#     POSTGRES_PASSWORD: password
+#     POSTGRES_DB: skyportal
+#     PGDATA: /var/lib/postgresql/data/pgdata
+    secrets:
+      - skyportal-database-user
+      - skyportal-database-password
     volumes:
       - dbdata:/var/lib/postgresql/data/pgdata
     restart: on-failure:3
@@ -23,3 +37,9 @@ services:
 volumes:
   dbdata:
   thumbnails:
+
+secrets:
+  skyportal-database-user:
+    file: ./secrets/skyportal-database-user.txt
+  skyportal-database-password:
+    file: ./secrets/skyportal-database-password.txt

@@ -2,8 +2,8 @@ database:
     database: skyportal
     host: db
     port: 5432
-    user: skyportal
-    password: password
+    user: SKYPORTAL_DATABASE_USER
+    password: SKYPORTAL_DATABASE_PASSWORD
 
 server:
     url: http://localhost:5000

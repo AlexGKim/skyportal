@@ -43,7 +43,9 @@ RUN bash -c "\
     mkdir -p /skyportal/static/thumbnails && \
     chown -R skyportal.skyportal /skyportal/static/thumbnails && \
     \
-    cp docker.yaml config.yaml"
+    cp docker.yaml config.yaml && \
+    \
+    chmod +x docker-entrypoint.sh"
 
 USER skyportal
 
@@ -52,3 +54,5 @@ EXPOSE 5000
 CMD bash -c "source /skyportal_env/bin/activate && \
              (make log &) && \
              make run_production"
+
+ENTRYPOINT ["./docker-entrypoint.sh"]
