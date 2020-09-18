@@ -1,0 +1,70 @@
+Installing SkyPortal on Rancher 2
+
+Important points:
+
+- Spin requires containers to be run as non-root whereas SkyPortal uses root, which is the default.  The Dockerfile is modified to include mkdir, chown, chuser to make important directories accessible.
+
+- Rancher 2 uses a UI to set up its workloads.  SkyPortal docker uses compose.  Ignore docker_compose.yaml.
+
+- Skyportal passes in database user and password through docker.yaml.  On Spin, passwords should be handled using secrets.
+
+
+Workflow:
+
+* Forked Skyportal to https://github.com/AlexGKim/skyportal
+Added skyportal as upstream
+
+
+* Local Install.
+
+- Follow installation instructions in http://skyportal.io/docs/setup.html
+- For my laptop do upgrades:
+  upgrade homebrew,
+  Need to use >3.7 python for virtualenv
+  virtualenv -p /Users/akim/.pyenv/shims/python skyportal_env
+  Had to change a local matplotlib config
+
+Dockerize and running instructions here http://skyportal.io/docs/deploy.html
+
+- Perturb Local Install
+
+Now try to replicate Spin environment locally.
+
+1) docker_compose.yaml: add cap_drop and cap_add
+
+2) add a symbolic link for python3 as python
+
+install pip3 and link to pip
+
+3) ... USERID numeric
+
+3) create a local secret and add it to docker_compose.yaml
+
+external secrets don't work in docker-compose so doing hard wired.
+
+
+--------
+
+SPIN
+
+Use Rancher2 GUI to set up the database using the docker_compose.yaml to see how what needs to be filled in the fields.
+
+Create secret for the database.
+
+Create a persistent volume for the database.
+
+Push the local docker image to the spin repository
+
+docker login registry.spin.nersc.gov
+docker image tag skyportal/web registry.nersc.gov/desi/skyportal/web
+docker image push registry.nersc.gov/desi/skyportal/web
+
+If needed I could edit files in containers with
+apt-get update
+apt-get install -y  vim
+
+echo "host skyportal skyportal 127.0.0.1/32 trust" >> pg_hba.conf 
+echo "host skyportal_test skyportal 127.0.0.1/32 trust" >> pg_hba.conf 
+
+edit postgresql.conf to uncomment
+port = 5432
