@@ -42,9 +42,9 @@ RUN bash -c "\
     chown -R skyportal.skyportal /skyportal_env && \
     chown -R skyportal.skyportal /skyportal && \
     chmod -R 777 /skyportal  /skyportal_env && \
-    mkdir -p log run tmp ./log/sv_child && \
-    chown -R skyportal.skyportal log run tmp ./log/sv_child && \
-    chmod -R 777 log run tmp ./log/sv_child && \
+    mkdir -p log run tmp ./log/sv_child /.local /.cache && \
+    chown -R skyportal.skyportal log run tmp ./log/sv_child /.local /.cache && \
+    chmod -R 777 log run tmp ./log/sv_child /.local /.cache && \
     chown skyportal.skyportal / && \
     mkdir -p  /.npm && \
     chown -R 5213:0 /.npm && \
