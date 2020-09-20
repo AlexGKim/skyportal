@@ -7,9 +7,11 @@ RUN apt-get update && \
     curl -sL https://deb.nodesource.com/setup_12.x | bash - && \
     apt-get update && \
     apt-get -y upgrade && \
-    apt-get install -y python3 python3-venv python3-dev \
+    apt-get install -y python3 python3-venv python3-dev python3-pip \
                        libpq-dev supervisor \
                        git nginx nodejs postgresql-client && \
+    ln -s /usr/bin/python3 /usr/bin/python && \ 
+    ln -s /usr/bin/pip3 /usr/bin/pip && \ 
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
     useradd --create-home --shell /bin/bash skyportal
@@ -39,6 +41,13 @@ RUN bash -c "\
     \
     chown -R skyportal.skyportal /skyportal_env && \
     chown -R skyportal.skyportal /skyportal && \
+    chmod -R 777 /skyportal  /skyportal_env && \
+    mkdir -p log run tmp ./log/sv_child && \
+    chown -R skyportal.skyportal log run tmp ./log/sv_child && \
+    chmod -R 777 log run tmp ./log/sv_child && \
+    chown skyportal.skyportal / && \
+    mkdir -p  /.npm && \
+    chown -R 5213:0 /.npm && \
     \
     mkdir -p /skyportal/static/thumbnails && \
     chown -R skyportal.skyportal /skyportal/static/thumbnails && \
