@@ -54,6 +54,7 @@ RUN bash -c "\
     \
     cp docker.yaml config.yaml && \
     \
+    chown skyportal.skyportal docker-entrypoint.sh  && \
     chmod +x docker-entrypoint.sh"
 
 USER skyportal
