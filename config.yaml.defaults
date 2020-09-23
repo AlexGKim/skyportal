@@ -218,9 +218,9 @@ server:
   ssl: False  # Must be either True or False
 
   auth:
-    debug_login: True
-    google_oauth2_key:
-    google_oauth2_secret:
+    debug_login: False
+    google_oauth2_key: GOOGLE_OAUTH2_KEY
+    google_oauth2_secret: GOOGLE_OAUTH2_SECRET
 
 services:
   dask: False
