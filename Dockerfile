@@ -45,6 +45,9 @@ RUN bash -c "\
     mkdir -p log run tmp ./log/sv_child /.local /.cache && \
     chown -R skyportal.skyportal log run tmp ./log/sv_child /.local /.cache && \
     chmod -R 777 log run tmp ./log/sv_child /.local /.cache && \
+    mkdir -p /.astropy && \
+    chown -R skyportal.skyportal  /.astropy && \
+    chmod -R 777  /.astropy && \
     chown skyportal.skyportal / && \
     mkdir -p  /.npm && \
     chown -R 5213:0 /.npm && \
@@ -54,7 +57,6 @@ RUN bash -c "\
     \
     cp docker.yaml config.yaml && \
     \
-    chown skyportal.skyportal docker-entrypoint.sh  && \
     chmod +x docker-entrypoint.sh"
 
 USER skyportal
