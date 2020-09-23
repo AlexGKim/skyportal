@@ -6,13 +6,16 @@ Important points:
 
 - Rancher 2 uses a UI to set up its workloads.  SkyPortal docker uses compose.  Ignore docker_compose.yaml.
 
-- Skyportal passes in database user and password through docker.yaml.  On Spin, passwords should be handled using secrets.
+- Skyportal passes in database user and password through docker.yaml.  On Spin, passwords should be handled using secrets.  This is handled by a docker-entrypoint.sh that rewrites defaults.yaml, which is later copied into docker.yaml.
 
 
 Workflow:
 
 * Forked Skyportal to https://github.com/AlexGKim/skyportal
 Added skyportal as upstream
+
+Google Authentication
+https://console.developers.google.com/apis/credentials?pli=1&project=skyportal-241220&folder=&organizationId=
 
 
 * Local Install.
