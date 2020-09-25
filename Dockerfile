@@ -14,7 +14,7 @@ RUN apt-get update && \
     ln -s /usr/bin/pip3 /usr/bin/pip && \ 
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
-    useradd --create-home --shell /bin/bash skyportal
+    useradd -u 5213 --create-home --shell /bin/bash skyportal
 
 RUN python3 -m venv /skyportal_env && \
     \
@@ -66,5 +66,8 @@ EXPOSE 5000
 CMD bash -c "source /skyportal_env/bin/activate && \
              (make log &) && \
              make run_production"
+
+USER skyportal
+
 
 ENTRYPOINT ["./docker-entrypoint.sh"]
