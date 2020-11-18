@@ -1,0 +1,70 @@
+Installing SkyPortal on c3.lbl.gov
+
+
+Create local environment
+
+$ wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+$ bash Miniconda3-latest-Linux-x86_64.sh
+[logout, log back in]
+$ conda install nginx supervisor postgresql nodejs
+
+The environment is activated by
+
+conda activate skyportal_env
+
+Set up the databases:
+
+initdb -D ~/skyportal/pgdata --auth-local=trust
+
+for the following append PGPORT=5431 for non-default port
+
+pg_ctl -D pgdata -l logfile start
+
+# this starts the database server and writes the log to `logfile` which you can check with `tail`. the postgres server runs as your user (akim or similar)
+
+pg_ctl -D pgdata -l logfile start
+
+# this creates the skyportal database -- make sure createdb is the one that is associated with your postgres install (miniconda)
+
+createdb skyportal
+
+# verify that you can connect by doing 
+psql -d skyportal
+
+this should log you into the database skyportal running on localhost, port 5432, as user akim or similar, with no password (trust mode is enabled)
+
+if that line works successfully then modify your skyportal config.yaml.defaults file to point to this running db:
+
+database:
+  database: skyportal
+  host: localhost
+  port: 5432
+  user: akim or similar
+  password:
+
+
+Installing SkyPortal on desi2
+
+
+-Google Authentication
+-https://console.developers.google.com/apis/credentialspli=1&project=skyportal-241220&folder=&organizationId=
+
+
+sudo netstat -nlp | grep 5000
+pkill -f baselayer
+ps aux | grep baselayer
+
+
+Debug ports
+
+5431 5000
+
+Real ports
+5430 5001
+
+In debug more superadmin:
+
+http://desi2.lbl.gov:5000/become_user/1
+
+Make someone superadmin
+ INSERT INTO user_roles (created_at, modified, user_id, role_id) VALUES (now(), now(), [target_user_id], 'Super admin'); 
