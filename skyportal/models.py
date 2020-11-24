@@ -23,8 +23,6 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy_utils import URLType, EmailType
 from sqlalchemy import func
 
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
 from twilio.rest import Client as TwilioClient
 
 from astropy import units as u
@@ -60,6 +58,7 @@ from .enum_types import (
     api_classnames,
     listener_classnames,
 )
+from .email_utils import send_email
 
 from skyportal import facility_apis
 
@@ -323,6 +322,20 @@ Token.accessible_groups = user_or_token_accessible_groups
 
 
 @property
+def user_or_token_accessible_streams(self):
+    """Return the list of Streams a User or Token has access to."""
+    if "System admin" in self.permissions:
+        return Stream.query.all()
+    if isinstance(self, Token):
+        return self.created_by.streams
+    return self.streams
+
+
+User.accessible_streams = user_or_token_accessible_streams
+Token.accessible_streams = user_or_token_accessible_streams
+
+
+@property
 def token_groups(self):
     """The groups the Token owner is a member of."""
     return self.created_by.groups
@@ -407,6 +420,14 @@ class Obj(Base, ha.Point):
         doc="Internal key used for secure websocket messaging.",
     )
 
+    candidates = relationship(
+        'Candidate',
+        back_populates='obj',
+        cascade='save-update, merge, refresh-expire, expunge',
+        passive_deletes=True,
+        order_by="Candidate.passed_at",
+        doc="Candidates associated with the object.",
+    )
     comments = relationship(
         'Comment',
         back_populates='obj',
@@ -526,7 +547,7 @@ class Obj(Base, ha.Point):
     def desi_dr8_url(self):
         """Construct URL for public DESI DR8 cutout."""
         return (
-            f"http://legacysurvey.org/viewer/jpeg-cutout?ra={self.ra}"
+            f"https://www.legacysurvey.org/viewer/jpeg-cutout?ra={self.ra}"
             f"&dec={self.dec}&size=200&layer=dr8&pixscale=0.262&bands=grz"
         )
 
@@ -723,21 +744,68 @@ class Filter(Base):
         back_populates="filters",
         doc="The Filter's Group.",
     )
+    candidates = relationship(
+        'Candidate',
+        back_populates='filter',
+        cascade='save-update, merge, refresh-expire, expunge',
+        order_by="Candidate.passed_at",
+        doc="Candidates that have passed the filter.",
+    )
 
 
-Candidate = join_model("candidates", Filter, Obj)
-Candidate.__doc__ = (
-    "An Obj that passed a Filter, becoming scannable on the " "Filter's scanning page."
-)
-Candidate.passed_at = sa.Column(
-    sa.DateTime,
-    nullable=False,
-    index=True,
-    doc="ISO UTC time when the Candidate passed the Filter last time.",
-)
+class Candidate(Base):
+    "An Obj that passed a Filter, becoming scannable on the Filter's scanning page."
+    obj_id = sa.Column(
+        sa.ForeignKey("objs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="ID of the Obj",
+    )
+    obj = relationship(
+        "Obj",
+        foreign_keys=[obj_id],
+        back_populates="candidates",
+        doc="The Obj that passed a filter",
+    )
+    filter_id = sa.Column(
+        sa.ForeignKey("filters.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="ID of the filter the candidate passed",
+    )
+    filter = relationship(
+        "Filter",
+        foreign_keys=[filter_id],
+        back_populates="candidates",
+        doc="The filter that the Candidate passed",
+    )
+    passed_at = sa.Column(
+        sa.DateTime,
+        nullable=False,
+        index=True,
+        doc="ISO UTC time when the Candidate passed the Filter.",
+    )
+    passing_alert_id = sa.Column(
+        sa.BigInteger,
+        index=True,
+        doc="ID of the latest Stream alert that passed the Filter.",
+    )
+    uploader_id = sa.Column(
+        sa.ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="ID of the user that posted the candidate",
+    )
 
-Candidate.passing_alert_id = sa.Column(
-    sa.BigInteger, doc="ID of the latest Stream alert that passed the Filter."
+
+Candidate.__table_args__ = (
+    sa.Index(
+        "candidates_main_index",
+        Candidate.obj_id,
+        Candidate.filter_id,
+        Candidate.passed_at,
+        unique=True,
+    ),
 )
 
 
@@ -827,6 +895,7 @@ Source.saved_at = sa.Column(
     sa.DateTime,
     nullable=False,
     default=utcnow,
+    index=True,
     doc="ISO UTC time when the Obj was saved to its Group.",
 )
 Source.active = sa.Column(
@@ -2673,17 +2742,14 @@ UserInvitation = join_model("user_invitations", User, Invitation)
 def send_user_invite_email(mapper, connection, target):
     app_base_url = get_app_base_url()
     link_location = f'{app_base_url}/login/google-oauth2/?invite_token={target.token}'
-    message = Mail(
-        from_email=cfg["twilio.from_email"],
-        to_emails=target.user_email,
+    send_email(
+        recipients=[target.user_email],
         subject=cfg["invitations.email_subject"],
-        html_content=(
+        body=(
             f'{cfg["invitations.email_body_preamble"]}<br /><br />'
             f'Please click <a href="{link_location}">here</a> to join.'
         ),
     )
-    sg = SendGridAPIClient(cfg["twilio.sendgrid_api_key"])
-    sg.send(message)
 
 
 class SourceNotification(Base):
@@ -2780,8 +2846,8 @@ def send_source_notification(mapper, connection, target):
                 )
 
     # Send email notifications
+    recipients = []
     for user in target_users:
-        descriptor = "immediate" if target.level == "hard" else ""
         # If user has a contact email registered and opted into email notifications
         if (
             user.contact_email is not None
@@ -2789,23 +2855,22 @@ def send_source_notification(mapper, connection, target):
             and "allowEmailAlerts" in user.preferences
             and user.preferences.get("allowEmailAlerts")
         ):
-            html_content = (
-                f'{sent_by_name} would like to call your {descriptor} attention to'
-                f' <a href="{link_location}">{target.source_id}</a> ({source_info})'
-            )
-            if target.additional_notes != "" and target.additional_notes is not None:
-                html_content += (
-                    f'<br /><br />Additional notes: {target.additional_notes}'
-                )
+            recipients.append(user.contact_email)
 
-            message = Mail(
-                from_email=cfg["twilio.from_email"],
-                to_emails=user.contact_email,
-                subject=f'{cfg["app.title"]}: Source Alert',
-                html_content=html_content,
-            )
-            sg = SendGridAPIClient(cfg["twilio.sendgrid_api_key"])
-            sg.send(message)
+    descriptor = "immediate" if target.level == "hard" else ""
+    html_content = (
+        f'{sent_by_name} would like to call your {descriptor} attention to'
+        f' <a href="{link_location}">{target.source_id}</a> ({source_info})'
+    )
+    if target.additional_notes != "" and target.additional_notes is not None:
+        html_content += f'<br /><br />Additional notes: {target.additional_notes}'
+
+    if len(recipients) > 0:
+        send_email(
+            recipients=recipients,
+            subject=f'{cfg["app.title"]}: Source Alert',
+            body=html_content,
+        )
 
 
 @event.listens_for(User, 'after_insert')
