@@ -1,3 +1,4 @@
+from sqlalchemy import or_
 from sqlalchemy.orm import joinedload
 from marshmallow.exceptions import ValidationError
 from baselayer.app.access import permissions, auth_or_token
@@ -9,6 +10,8 @@ from ...models import (
     Group,
     GroupStream,
     GroupUser,
+    Obj,
+    Source,
     Stream,
     User,
     Token,
@@ -23,9 +26,9 @@ def has_admin_access_for_group(user, group_id):
         .filter(GroupUser.user_id == user.id)
         .first()
     )
-    return {"System admin", "Manage users", "Manage groups"}.intersection(
-        set(user.permissions)
-    ) or (groupuser is not None and groupuser.admin)
+    return len(
+        {"System admin", "Manage groups"}.intersection(set(user.permissions))
+    ) > 0 or (groupuser is not None and groupuser.admin)
 
 
 class GroupHandler(BaseHandler):
@@ -35,6 +38,8 @@ class GroupHandler(BaseHandler):
         ---
         single:
           description: Retrieve a group
+          tags:
+            - groups
           parameters:
             - in: path
               name: group_id
@@ -66,6 +71,8 @@ class GroupHandler(BaseHandler):
                   schema: Error
         multiple:
           description: Retrieve all groups
+          tags:
+            - groups
           parameters:
             - in: query
               name: name
@@ -117,48 +124,49 @@ class GroupHandler(BaseHandler):
                   schema: Error
         """
         if group_id is not None:
-            if has_admin_access_for_group(self.associated_user_object, group_id):
-                group = (
-                    Group.query.options(joinedload(Group.users))
-                    .options(joinedload(Group.group_users))
-                    .get(group_id)
+            group = Group.query.get(group_id)
+            if group is None:
+                return self.error(f"Could not load group with ID {group_id}")
+            # If not super admin or member of group
+            if (
+                not {"System admin", "Manage groups"}.intersection(
+                    set(self.associated_user_object.permissions)
                 )
-            else:
-                group = (
-                    Group.query.options(
-                        [joinedload(Group.users).load_only(User.id, User.username)]
-                    )
-                    .options(joinedload(Group.group_users))
-                    .get(group_id)
-                )
-                if group is not None and group.id not in [
-                    g.id for g in self.current_user.accessible_groups
-                ]:
-                    return self.error('Insufficient permissions.')
-            if group is not None:
-                group = group.to_dict()
-                # Do not include User.groups to avoid circular reference
-                group['users'] = [
-                    {'id': user.id, 'username': user.username}
-                    for user in group['users']
-                ]
-                # grab streams:
-                streams = (
-                    DBSession()
-                    .query(Stream)
-                    .join(GroupStream)
-                    .filter(GroupStream.group_id == group_id)
-                    .all()
-                )
-                group['streams'] = streams
-                # grab filters:
-                filters = (
-                    DBSession().query(Filter).filter(Filter.group_id == group_id).all()
-                )
-                group['filters'] = filters
+            ) and group.id not in [g.id for g in self.current_user.accessible_groups]:
+                return self.error('Insufficient permissions.')
 
-                return self.success(data=group)
-            return self.error(f"Could not load group with ID {group_id}")
+            # Do not include User.groups to avoid circular reference
+            users = [
+                {
+                    "id": user.id,
+                    "username": user.username,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "contact_email": user.contact_email,
+                    "contact_phone": user.contact_phone,
+                    "oauth_uid": user.oauth_uid,
+                    "admin": has_admin_access_for_group(user, group_id),
+                }
+                for user in group.users
+            ]
+            group = group.to_dict()
+            group['users'] = users
+            # grab streams:
+            streams = (
+                DBSession()
+                .query(Stream)
+                .join(GroupStream)
+                .filter(GroupStream.group_id == group_id)
+                .all()
+            )
+            group['streams'] = streams
+            # grab filters:
+            filters = (
+                DBSession().query(Filter).filter(Filter.group_id == group_id).all()
+            )
+            group['filters'] = filters
+
+            return self.success(data=group)
         group_name = self.get_query_argument("name", None)
         if group_name is not None:
             groups = Group.query.filter(Group.name == group_name).all()
@@ -198,6 +206,8 @@ class GroupHandler(BaseHandler):
         """
         ---
         description: Create a new group
+        tags:
+          - groups
         requestBody:
           content:
             application/json:
@@ -253,7 +263,6 @@ class GroupHandler(BaseHandler):
         )
         DBSession().commit()
 
-        self.push_all(action='skyportal/FETCH_GROUPS')
         return self.success(data={"id": g.id})
 
     @auth_or_token
@@ -261,6 +270,8 @@ class GroupHandler(BaseHandler):
         """
         ---
         description: Update a group
+        tags:
+          - groups
         parameters:
           - in: path
             name: group_id
@@ -314,6 +325,8 @@ class GroupHandler(BaseHandler):
         """
         ---
         description: Delete a group
+        tags:
+          - groups
         parameters:
           - in: path
             name: group_id
@@ -349,7 +362,6 @@ class GroupHandler(BaseHandler):
         self.push_all(
             action='skyportal/REFRESH_GROUP', payload={'group_id': int(group_id)}
         )
-        self.push_all(action='skyportal/FETCH_GROUPS')
         return self.success()
 
 
@@ -359,6 +371,9 @@ class GroupUserHandler(BaseHandler):
         """
         ---
         description: Add a group user
+        tags:
+          - groups
+          - users
         parameters:
           - in: path
             name: group_id
@@ -450,6 +465,9 @@ class GroupUserHandler(BaseHandler):
         """
         ---
         description: Update a group user's admin status
+        tags:
+          - groups
+          - users
         parameters:
           - in: path
             name: group_id
@@ -506,6 +524,9 @@ class GroupUserHandler(BaseHandler):
         """
         ---
         description: Delete a group user
+        tags:
+          - groups
+          - users
         parameters:
           - in: path
             name: group_id
@@ -551,6 +572,9 @@ class GroupUsersFromOtherGroupsHandler(BaseHandler):
         """
         ---
         description: Add users from other group(s) to specified group
+        tags:
+          - groups
+          - users
         parameters:
           - in: path
             name: group_id
@@ -638,6 +662,9 @@ class GroupStreamHandler(BaseHandler):
         """
         ---
         description: Add alert stream access to group
+        tags:
+          - groups
+          - streams
         parameters:
           - in: path
             name: group_id
@@ -707,6 +734,9 @@ class GroupStreamHandler(BaseHandler):
         """
         ---
         description: Delete an alert stream from group
+        tags:
+          - groups
+          - streams
         parameters:
           - in: path
             name: group_id
@@ -739,3 +769,52 @@ class GroupStreamHandler(BaseHandler):
                 action='skyportal/REFRESH_GROUP', payload={'group_id': int(group_id)}
             )
             return self.success()
+
+
+class ObjGroupsHandler(BaseHandler):
+    @auth_or_token
+    def get(self, obj_id):
+        """
+        ---
+        description: Retrieve basic info on Groups that an Obj is saved to
+        tags:
+          - groups
+          - sources
+        parameters:
+          - in: path
+            name: obj_id
+            required: true
+            schema:
+              type: integer
+        responses:
+          200:
+            content:
+              application/json:
+                schema: ArrayOfGroups
+          400:
+            content:
+              application/json:
+                schema: Error
+        """
+        s = Obj.get_if_readable_by(obj_id, self.current_user)
+
+        if s is None:
+            return self.error("Source not found", status=404)
+
+        source_info = s.to_dict()
+
+        user_accessible_group_ids = [g.id for g in self.current_user.accessible_groups]
+
+        query = (
+            DBSession()
+            .query(Group)
+            .join(Source)
+            .filter(
+                Source.obj_id == source_info["id"],
+                Group.id.in_(user_accessible_group_ids),
+            )
+        )
+        query = query.filter(or_(Source.requested.is_(True), Source.active.is_(True)))
+        groups = [g.to_dict() for g in query.all()]
+
+        return self.success(data=groups)

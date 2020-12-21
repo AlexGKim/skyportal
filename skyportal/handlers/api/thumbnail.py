@@ -16,6 +16,8 @@ class ThumbnailHandler(BaseHandler):
         """
         ---
         description: Upload thumbnails
+        tags:
+          - thumbnails
         requestBody:
           content:
             application/json:
@@ -59,7 +61,7 @@ class ThumbnailHandler(BaseHandler):
         if 'obj_id' not in data:
             return self.error("Missing required parameter: obj_id")
         obj_id = data['obj_id']
-        obj = Obj.get_if_owned_by(obj_id, self.current_user)
+        obj = Obj.get_if_readable_by(obj_id, self.current_user)
         if obj is None:
             return self.error(f"Invalid obj_id: {obj_id}")
         try:
@@ -81,6 +83,8 @@ class ThumbnailHandler(BaseHandler):
         """
         ---
         description: Retrieve a thumbnail
+        tags:
+          - thumbnails
         parameters:
           - in: path
             name: thumbnail_id
@@ -101,7 +105,7 @@ class ThumbnailHandler(BaseHandler):
         if t is None:
             return self.error(f"Could not load thumbnail with ID {thumbnail_id}")
         # Ensure user/token has access to parent source
-        _ = Source.get_obj_if_owned_by(t.obj.id, self.current_user)
+        _ = Source.get_obj_if_readable_by(t.obj.id, self.current_user)
 
         return self.success(data=t)
 
@@ -110,6 +114,8 @@ class ThumbnailHandler(BaseHandler):
         """
         ---
         description: Update thumbnail
+        tags:
+          - thumbnails
         parameters:
           - in: path
             name: thumbnail_id
@@ -134,7 +140,7 @@ class ThumbnailHandler(BaseHandler):
         if t is None:
             return self.error('Invalid thumbnail ID.')
         # Ensure user/token has access to parent source
-        _ = Source.get_obj_if_owned_by(t.obj.id, self.current_user)
+        _ = Source.get_obj_if_readable_by(t.obj.id, self.current_user)
 
         data = self.get_json()
         data['id'] = thumbnail_id
@@ -155,6 +161,8 @@ class ThumbnailHandler(BaseHandler):
         """
         ---
         description: Delete a thumbnail
+        tags:
+          - thumbnails
         parameters:
           - in: path
             name: thumbnail_id
@@ -175,7 +183,7 @@ class ThumbnailHandler(BaseHandler):
         if t is None:
             return self.error('Invalid thumbnail ID.')
         # Ensure user/token has access to parent source
-        _ = Source.get_obj_if_owned_by(t.obj.id, self.current_user)
+        _ = Source.get_obj_if_readable_by(t.obj.id, self.current_user)
 
         DBSession().query(Thumbnail).filter(Thumbnail.id == int(thumbnail_id)).delete()
         DBSession().commit()

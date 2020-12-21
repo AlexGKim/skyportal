@@ -24,11 +24,11 @@ def post_assignment(obj, run, priority, comment, token):
 
 @pytest.mark.flaky(reruns=2)
 def test_source_is_added_to_observing_run_via_frontend(
-    driver, super_admin_user, public_source, red_transients_run
+    driver, super_admin_user, public_source, red_transients_run,
 ):
     driver.get(f"/become_user/{super_admin_user.id}")
     driver.get(f"/source/{public_source.id}")
-    run_select = driver.wait_for_xpath('//*[@id="mui-component-select-run_id"]')
+    run_select = driver.wait_for_xpath('//*[@data-testid="assignmentSelect"]')
     driver.scroll_to_element_and_click(run_select)
     observingrun_title = (
         f"{red_transients_run.calendar_date} "
@@ -42,15 +42,14 @@ def test_source_is_added_to_observing_run_via_frontend(
         driver.wait_for_xpath(f'//li[@data-value="{red_transients_run.id}"]')
     )
 
-    comment_box = driver.wait_for_xpath("//textarea[@name='comment']")
+    comment_box = driver.wait_for_xpath(
+        "//*[@data-testid='assignmentCommentInput']/div/textarea"
+    )
     comment_text = str(uuid.uuid4())
     comment_box.send_keys(comment_text)
+    driver.click_xpath('//*[@data-testid="assignmentSubmitButton"]')
 
-    submit_button = driver.wait_for_xpath('//*[@name="assignmentSubmitButton"]')
-
-    driver.scroll_to_element_and_click(submit_button)
     driver.get(f"/run/{red_transients_run.id}")
-
     # 20 second timeout to give the backend time to perform ephemeris calcs
     driver.wait_for_xpath(f'//*[text()="{public_source.id}"]', timeout=20)
     driver.wait_for_xpath(f'//*[text()="{comment_text}"]')

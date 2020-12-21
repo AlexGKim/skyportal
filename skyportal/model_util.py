@@ -1,6 +1,6 @@
 from social_tornado.models import TornadoStorage
 from skyportal.models import DBSession, ACL, Role, User, Group, Token
-from skyportal.enum_types import LISTENER_CLASSES
+from skyportal.enum_types import LISTENER_CLASSES, sqla_enum_types
 from baselayer.app.env import load_env
 
 all_acl_ids = [
@@ -36,10 +36,10 @@ role_acls = {
 env, cfg = load_env()
 
 
-def add_user(username, roles=[], auth=False):
+def add_user(username, roles=[], auth=False, first_name=None, last_name=None):
     user = User.query.filter(User.username == username).first()
     if user is None:
-        user = User(username=username)
+        user = User(username=username, first_name=first_name, last_name=last_name)
         if auth:
             TornadoStorage.user.create_social_auth(user, user.username, 'google-oauth2')
 
@@ -66,6 +66,15 @@ def add_user(username, roles=[], auth=False):
     return User.query.filter(User.username == username).first()
 
 
+def refresh_enums():
+    for type in sqla_enum_types:
+        for key in type.enums:
+            DBSession().execute(
+                f"ALTER TYPE {type.name} ADD VALUE IF NOT EXISTS '{key}'"
+            )
+    DBSession().commit()
+
+
 def make_super_user(username):
     """Initializes a super user with full permissions."""
     setup_permissions()  # make sure permissions already exist
@@ -75,7 +84,12 @@ def make_super_user(username):
 def provision_token():
     """Provision an initial administrative token.
     """
-    admin = add_user('provisioned_admin', roles=['Super admin'])
+    admin = add_user(
+        'provisioned_admin',
+        roles=['Super admin'],
+        first_name="provisioned",
+        last_name="admin",
+    )
     token_name = 'Initial admin token'
 
     token = (

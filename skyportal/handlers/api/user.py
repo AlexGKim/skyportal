@@ -70,6 +70,8 @@ class UserHandler(BaseHandler):
         ---
         single:
           description: Retrieve a user
+          tags:
+            - users
           parameters:
             - in: path
               name: user_id
@@ -87,6 +89,8 @@ class UserHandler(BaseHandler):
                   schema: Error
         multiple:
           description: Retrieve all users
+          tags:
+            - users
           parameters:
           - in: query
             name: numPerPage
@@ -236,7 +240,6 @@ class UserHandler(BaseHandler):
         return_values = []
         for user in query.all():
             return_values.append(user.to_dict())
-            del return_values[-1]["preferences"]
             return_values[-1]["permissions"] = sorted(user.permissions)
             return_values[-1]["roles"] = sorted([role.id for role in user.roles])
             return_values[-1]["acls"] = sorted([acl.id for acl in user.acls])
@@ -257,6 +260,8 @@ class UserHandler(BaseHandler):
         """
         ---
         description: Add a new user
+        tags:
+          - users
         requestBody:
           content:
             application/json:
@@ -357,6 +362,8 @@ class UserHandler(BaseHandler):
         """
         ---
         description: Delete a user
+        tags:
+          - users
         parameters:
           - in: path
             name: user_id

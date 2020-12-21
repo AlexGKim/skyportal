@@ -26,6 +26,8 @@ class AssignmentHandler(BaseHandler):
         ---
         single:
           description: Retrieve an observing run assignment
+          tags:
+            - assignments
           parameters:
             - in: path
               name: assignment_id
@@ -43,6 +45,8 @@ class AssignmentHandler(BaseHandler):
                   schema: Error
         multiple:
           description: Retrieve all observing run assignments
+          tags:
+            - assignments
           responses:
             200:
               content:
@@ -101,6 +105,8 @@ class AssignmentHandler(BaseHandler):
         """
         ---
         description: Post new target assignment to observing run
+        tags:
+          - assignments
         requestBody:
           content:
             application/json:
@@ -145,7 +151,7 @@ class AssignmentHandler(BaseHandler):
             return self.error('Object is already assigned to this run.')
 
         assignment = ClassicalAssignment(**data)
-        source = Source.get_obj_if_owned_by(assignment.obj_id, self.current_user)
+        source = Source.get_obj_if_readable_by(assignment.obj_id, self.current_user)
 
         if source is None:
             return self.error(f'Invalid obj_id: "{assignment.obj_id}"')
@@ -168,6 +174,8 @@ class AssignmentHandler(BaseHandler):
         """
         ---
         description: Update an assignment
+        tags:
+          - assignments
         parameters:
           - in: path
             name: assignment_id
@@ -221,6 +229,8 @@ class AssignmentHandler(BaseHandler):
         """
         ---
         description: Delete assignment.
+        tags:
+          - assignments
         parameters:
           - in: path
             name: assignment_id
@@ -256,6 +266,8 @@ class FollowupRequestHandler(BaseHandler):
         ---
         single:
           description: Retrieve a followup request
+          tags:
+            - followup_requests
           parameters:
             - in: path
               name: followup_request_id
@@ -273,6 +285,8 @@ class FollowupRequestHandler(BaseHandler):
                   schema: Error
         multiple:
           description: Retrieve all followup requests
+          tags:
+            - followup_requests
           responses:
             200:
               content:
@@ -320,6 +334,8 @@ class FollowupRequestHandler(BaseHandler):
         """
         ---
         description: Submit follow-up request.
+        tags:
+          - followup_requests
         requestBody:
           content:
             application/json:
@@ -341,7 +357,7 @@ class FollowupRequestHandler(BaseHandler):
                               description: New follow-up request ID
         """
         data = self.get_json()
-        _ = Source.get_obj_if_owned_by(data["obj_id"], self.current_user)
+        _ = Source.get_obj_if_readable_by(data["obj_id"], self.current_user)
 
         try:
             data = FollowupRequestPost.load(data)
@@ -398,7 +414,7 @@ class FollowupRequestHandler(BaseHandler):
             DBSession().commit()
             self.push_all(
                 action="skyportal/REFRESH_SOURCE",
-                payload={"obj_id": followup_request.obj_id},
+                payload={"obj_key": followup_request.obj.internal_key},
             )
 
         return self.success(data={"id": followup_request.id})
@@ -408,6 +424,8 @@ class FollowupRequestHandler(BaseHandler):
         """
         ---
         description: Update a follow-up request
+        tags:
+          - followup_requests
         parameters:
           - in: path
             name: request_id
@@ -429,7 +447,7 @@ class FollowupRequestHandler(BaseHandler):
                 schema: Error
         """
 
-        followup_request = FollowupRequest.get_if_owned_by(
+        followup_request = FollowupRequest.get_if_readable_by(
             request_id, self.current_user
         )
 
@@ -485,6 +503,8 @@ class FollowupRequestHandler(BaseHandler):
         """
         ---
         description: Delete follow-up request.
+        tags:
+          - followup_requests
         parameters:
           - in: path
             name: request_id
@@ -497,7 +517,7 @@ class FollowupRequestHandler(BaseHandler):
               application/json:
                 schema: Success
         """
-        followup_request = FollowupRequest.get_if_owned_by(
+        followup_request = FollowupRequest.get_if_readable_by(
             request_id, self.current_user
         )
         if not (

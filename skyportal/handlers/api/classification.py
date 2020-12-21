@@ -1,9 +1,7 @@
 from marshmallow.exceptions import ValidationError
 from baselayer.app.access import permissions, auth_or_token
 from ..base import BaseHandler
-from ...models import DBSession, Source, Group, Classification, Taxonomy
-from .internal.recent_sources import RecentSourcesHandler
-from .internal.source_views import SourceViewsHandler
+from ...models import DBSession, Source, Group, Classification, Taxonomy, Obj
 
 
 class ClassificationHandler(BaseHandler):
@@ -12,6 +10,8 @@ class ClassificationHandler(BaseHandler):
         """
         ---
         description: Retrieve a classification
+        tags:
+          - classifications
         parameters:
           - in: path
             name: classification_id
@@ -28,7 +28,7 @@ class ClassificationHandler(BaseHandler):
               application/json:
                 schema: Error
         """
-        classification = Classification.get_if_owned_by(
+        classification = Classification.get_if_readable_by(
             classification_id, self.current_user
         )
         if classification is None:
@@ -40,6 +40,8 @@ class ClassificationHandler(BaseHandler):
         """
         ---
         description: Post a classification
+        tags:
+          - classifications
         requestBody:
           content:
             application/json:
@@ -94,7 +96,7 @@ class ClassificationHandler(BaseHandler):
         data = self.get_json()
         obj_id = data['obj_id']
         # Ensure user/token has access to parent source
-        source = Source.get_obj_if_owned_by(obj_id, self.current_user)
+        source = Source.get_obj_if_readable_by(obj_id, self.current_user)
         if source is None:
             return self.error("Invalid source.")
         user_group_ids = [g.id for g in self.current_user.groups]
@@ -160,16 +162,6 @@ class ClassificationHandler(BaseHandler):
             action='skyportal/REFRESH_SOURCE',
             payload={'obj_key': classification.obj.internal_key},
         )
-        if classification.obj_id in RecentSourcesHandler.get_recent_source_ids(
-            self.current_user
-        ):
-            self.push_all(action='skyportal/FETCH_RECENT_SOURCES')
-
-        if classification.obj_id in map(
-            lambda view_obj_tuple: view_obj_tuple[1],
-            SourceViewsHandler.get_top_source_views_and_ids(self.current_user),
-        ):
-            self.push_all(action='skyportal/FETCH_TOP_SOURCES')
 
         self.push_all(
             action='skyportal/REFRESH_CANDIDATE',
@@ -183,6 +175,8 @@ class ClassificationHandler(BaseHandler):
         """
         ---
         description: Update a classification
+        tags:
+          - classifications
         parameters:
           - in: path
             name: classification
@@ -214,7 +208,7 @@ class ClassificationHandler(BaseHandler):
               application/json:
                 schema: Error
         """
-        c = Classification.get_if_owned_by(classification_id, self.current_user)
+        c = Classification.get_if_readable_by(classification_id, self.current_user)
         if c is None:
             return self.error('Invalid classification ID.')
 
@@ -231,7 +225,7 @@ class ClassificationHandler(BaseHandler):
             )
         DBSession().flush()
         if group_ids is not None:
-            c = Classification.get_if_owned_by(classification_id, self.current_user)
+            c = Classification.get_if_readable_by(classification_id, self.current_user)
             groups = Group.query.filter(Group.id.in_(group_ids)).all()
             if not groups:
                 return self.error(
@@ -252,8 +246,6 @@ class ClassificationHandler(BaseHandler):
         self.push_all(
             action='skyportal/REFRESH_CANDIDATE', payload={'id': c.obj.internal_key},
         )
-        if c.obj_id in RecentSourcesHandler.get_recent_source_ids(self.current_user):
-            self.push_all(action='skyportal/FETCH_RECENT_SOURCES')
 
         return self.success()
 
@@ -262,6 +254,8 @@ class ClassificationHandler(BaseHandler):
         """
         ---
         description: Delete a classification
+        tags:
+          - classifications
         parameters:
           - in: path
             name: classification_id
@@ -279,7 +273,6 @@ class ClassificationHandler(BaseHandler):
         c = Classification.query.get(classification_id)
         if c is None:
             return self.error("Invalid classification ID")
-        obj_id = c.obj_id
         obj_key = c.obj.internal_key
         author = c.author
         if ("Super admin" in [role.id for role in roles]) or (user.id == author.id):
@@ -293,7 +286,41 @@ class ClassificationHandler(BaseHandler):
         self.push_all(
             action='skyportal/REFRESH_CANDIDATE', payload={'id': obj_key},
         )
-        if obj_id in RecentSourcesHandler.get_recent_source_ids(self.current_user):
-            self.push_all(action='skyportal/FETCH_RECENT_SOURCES')
 
         return self.success()
+
+
+class ObjClassificationHandler(BaseHandler):
+    @auth_or_token
+    def get(self, obj_id):
+        """
+        ---
+        description: Retrieve an object's classifications
+        tags:
+          - classifications
+        parameters:
+          - in: path
+            name: obj_id
+            required: true
+            schema:
+              type: integer
+        responses:
+          200:
+            content:
+              application/json:
+                schema: ArrayOfClassifications
+          400:
+            content:
+              application/json:
+                schema: Error
+        """
+
+        obj = Obj.get_if_readable_by(obj_id, self.current_user)
+        if obj is None:
+            return self.error('Invalid obj_id.')
+
+        classifications = obj.get_classifications_readable_by(self.current_user)
+        for classification in classifications:
+            del classification.groups
+
+        return self.success(data=classifications)

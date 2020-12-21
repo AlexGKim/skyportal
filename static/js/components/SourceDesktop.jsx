@@ -13,7 +13,6 @@ import AccordionDetails from "@material-ui/core/AccordionDetails";
 import ExpandMoreIcon from "@material-ui/icons/ExpandMore";
 import Typography from "@material-ui/core/Typography";
 
-import Plot from "./Plot";
 import CommentList from "./CommentList";
 import ClassificationList from "./ClassificationList";
 import ClassificationForm from "./ClassificationForm";
@@ -33,6 +32,9 @@ import UpdateSourceRedshift from "./UpdateSourceRedshift";
 import SourceRedshiftHistory from "./SourceRedshiftHistory";
 import ObjPageAnnotations from "./ObjPageAnnotations";
 import SourceSaveHistory from "./SourceSaveHistory";
+import PhotometryTable from "./PhotometryTable";
+
+const Plot = React.lazy(() => import(/* webpackChunkName: "Bokeh" */ "./Plot"));
 
 const CentroidPlot = React.lazy(() =>
   import(/* webpackChunkName: "CentroidPlot" */ "./CentroidPlot")
@@ -51,15 +53,9 @@ export const useSourceStyles = makeStyles((theme) => ({
     display: "flex",
     overflowX: "scroll",
     flexDirection: "column",
-    paddingBottom: "0.5rem",
+    padding: "0.5rem",
     "& div button": {
       margin: "0.5rem",
-    },
-    "& .bk-bs-nav": {
-      marginTop: "0px",
-    },
-    "& .bk-plotdiv > .bk-widget": {
-      marginTop: "0px",
     },
   },
   source: {
@@ -91,10 +87,6 @@ export const useSourceStyles = makeStyles((theme) => ({
     paddingBottom: "0.25em",
     display: "inline-block",
   },
-  plot: {
-    width: "900px",
-    overflow: "auto",
-  },
   smallPlot: {
     width: "350px",
     overflow: "auto",
@@ -103,6 +95,7 @@ export const useSourceStyles = makeStyles((theme) => ({
   classifications: {
     display: "flex",
     flexDirection: "column",
+    width: "100%",
   },
   alignRight: {
     display: "inline-block",
@@ -122,6 +115,7 @@ const SourceDesktop = ({ source }) => {
   const classes = useSourceStyles();
 
   const [showStarList, setShowStarList] = useState(false);
+  const [showPhotometry, setShowPhotometry] = useState(false);
 
   const { instrumentList, instrumentFormParams } = useSelector(
     (state) => state.instruments
@@ -148,8 +142,8 @@ const SourceDesktop = ({ source }) => {
           <b>Position (J2000):</b>
           &nbsp; &nbsp;
           <span className={classes.position}>
-            {ra_to_hours(source.ra)} &nbsp;
-            {dec_to_dms(source.dec)}
+            {ra_to_hours(source.ra, ":")} &nbsp;
+            {dec_to_dms(source.dec, ":")}
           </span>
           &nbsp; (&alpha;,&delta;= {source.ra}, &nbsp;
           {source.dec}; <i>l</i>,<i>b</i>={source.gal_lon.toFixed(6)}, &nbsp;
@@ -266,19 +260,29 @@ const SourceDesktop = ({ source }) => {
             </AccordionSummary>
             <AccordionDetails>
               <div className={classes.photometryContainer}>
-                <Plot
-                  className={classes.plot}
-                  url={`/api/internal/plot/photometry/${source.id}`}
-                />
+                <Suspense fallback={<div>Loading photometry plot...</div>}>
+                  <Plot
+                    url={`/api/internal/plot/photometry/${source.id}?width=800&height=500`}
+                  />
+                </Suspense>
                 <div>
                   <Link to={`/upload_photometry/${source.id}`} role="link">
                     <Button variant="contained">
                       Upload additional photometry
                     </Button>
                   </Link>
-                  <Link to={`/share_data/${source.id}`} role="link">
-                    <Button variant="contained">Share data</Button>
+                  <Link to={`/manage_data/${source.id}`} role="link">
+                    <Button variant="contained">Manage data</Button>
                   </Link>
+                  <Button
+                    variant="contained"
+                    onClick={() => {
+                      setShowPhotometry(true);
+                    }}
+                    data-testid="show-photometry-table-button"
+                  >
+                    Show Photometry Table
+                  </Button>
                 </div>
               </div>
             </AccordionDetails>
@@ -297,18 +301,19 @@ const SourceDesktop = ({ source }) => {
             </AccordionSummary>
             <AccordionDetails>
               <div className={classes.photometryContainer}>
-                <Plot
-                  className={classes.plot}
-                  url={`/api/internal/plot/spectroscopy/${source.id}`}
-                />
+                <Suspense fallback={<div>Loading spectroscopy plot...</div>}>
+                  <Plot
+                    url={`/api/internal/plot/spectroscopy/${source.id}?width=800&height=500`}
+                  />
+                </Suspense>
                 <div>
                   <Link to={`/upload_spectrum/${source.id}`} role="link">
                     <Button variant="contained">
                       Upload additional spectroscopy
                     </Button>
                   </Link>
-                  <Link to={`/share_data/${source.id}`} role="link">
-                    <Button variant="contained">Share data</Button>
+                  <Link to={`/manage_data/${source.id}`} role="link">
+                    <Button variant="contained">Manage data</Button>
                   </Link>
                 </div>
               </div>
@@ -349,6 +354,13 @@ const SourceDesktop = ({ source }) => {
             </AccordionDetails>
           </Accordion>
         </div>
+        <PhotometryTable
+          obj_id={source.id}
+          open={showPhotometry}
+          onClose={() => {
+            setShowPhotometry(false);
+          }}
+        />
       </div>
 
       <div className={classes.rightColumn}>

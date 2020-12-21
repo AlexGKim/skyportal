@@ -11,6 +11,8 @@ class AnnotationHandler(BaseHandler):
         """
         ---
         description: Retrieve an annotation
+        tags:
+          - annotations
         parameters:
           - in: path
             name: annotation_id
@@ -27,7 +29,7 @@ class AnnotationHandler(BaseHandler):
               application/json:
                 schema: Error
         """
-        annotation = Annotation.get_if_owned_by(annotation_id, self.current_user)
+        annotation = Annotation.get_if_readable_by(annotation_id, self.current_user)
         if annotation is None:
             return self.error('Invalid annotation ID.')
         return self.success(data=annotation)
@@ -37,6 +39,8 @@ class AnnotationHandler(BaseHandler):
         """
         ---
         description: Post an annotation
+        tags:
+          - annotations
         requestBody:
           content:
             application/json:
@@ -173,6 +177,8 @@ class AnnotationHandler(BaseHandler):
         """
         ---
         description: Update an annotation
+        tags:
+          - annotations
         parameters:
           - in: path
             name: annotation_id
@@ -204,7 +210,7 @@ class AnnotationHandler(BaseHandler):
               application/json:
                 schema: Error
         """
-        a = Annotation.get_if_owned_by(annotation_id, self.current_user)
+        a = Annotation.get_if_readable_by(annotation_id, self.current_user)
         if a is None:
             return self.error('Invalid annotation ID.')
 
@@ -219,7 +225,7 @@ class AnnotationHandler(BaseHandler):
             return self.error(f'Invalid/missing parameters: {e.normalized_messages()}')
         DBSession().flush()
         if group_ids is not None:
-            a = Annotation.get_if_owned_by(annotation_id, self.current_user)
+            a = Annotation.get_if_readable_by(annotation_id, self.current_user)
             groups = Group.query.filter(Group.id.in_(group_ids)).all()
             if not groups:
                 return self.error(
@@ -243,6 +249,8 @@ class AnnotationHandler(BaseHandler):
         """
         ---
         description: Delete an annotation
+        tags:
+          - annotations
         parameters:
           - in: path
             name: annotation_id
