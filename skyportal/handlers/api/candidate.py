@@ -18,6 +18,7 @@ from ...models import (
     Obj,
     Candidate,
     Photometry,
+    Spectrum,
     Source,
     Filter,
     Annotation,
@@ -131,11 +132,13 @@ class CandidateHandler(BaseHandler):
               Used only in the case of paginating query results - if provided, this
               allows for avoiding a potentially expensive query.count() call.
           - in: query
-            name: unsavedOnly
+            name: savedStatus
             nullable: true
             schema:
-              type: boolean
-            description: Boolean indicating whether to return only unsaved candidates
+                type: string
+                enum: [all, savedToAllSelected, savedToAnySelected, savedToAnyAccessible, notSavedToAnyAccessible, notSavedToAnySelected, notSavedToAllSelected]
+            description: |
+                String indicating the saved status to filter candidate results for. Must be one of the enumerated values.
           - in: query
             name: startDate
             nullable: true
@@ -176,6 +179,26 @@ class CandidateHandler(BaseHandler):
             description: |
               Comma-separated string of filter IDs (e.g. "1,2"). Defaults to all of user's
               groups' filters if groupIDs is not provided.
+          - in: query
+            name: annotationExcludeOrigin
+            nullable: true
+            schema:
+              type: string
+            description: |
+              Only load objects that do not have annotations from this origin.
+              If the annotationsExcludeOutdatedDate is also given, then annotations with
+              this origin will still be loaded if they were modified before that date.
+          - in: query
+            name: annotationExcludeOutdatedDate
+            nullable: true
+            schema:
+              type: string
+            description: |
+              An Arrow parseable string designating when an existing annotation is outdated.
+              Only relevant if giving the annotationExcludeOrigin argument.
+              Will treat objects with outdated annotations as if they did not have that annotation,
+              so it will load an object if it doesn't have an annotation with the origin specified or
+              if it does have it but the annotation modified date < annotationsExcludeOutdatedDate
           - in: query
             name: sortByAnnotationOrigin
             nullable: true
@@ -219,6 +242,13 @@ class CandidateHandler(BaseHandler):
             description: |
               Boolean indicating whether to include associated photometry. Defaults to
               false.
+          - in: query
+            name: includeSpectra
+            nullable: true
+            schema:
+              type: boolean
+            description: |
+              Boolean indicating whether to include associated spectra. Defaults to false.
           - in: query
             name: classifications
             nullable: true
@@ -272,6 +302,7 @@ class CandidateHandler(BaseHandler):
         """
         user_accessible_group_ids = [g.id for g in self.current_user.accessible_groups]
         include_photometry = self.get_query_argument("includePhotometry", False)
+        include_spectra = self.get_query_argument("includeSpectra", False)
 
         if obj_id is not None:
             query_options = [joinedload(Candidate.obj).joinedload(Obj.thumbnails)]
@@ -280,6 +311,12 @@ class CandidateHandler(BaseHandler):
                     joinedload(Candidate.obj)
                     .joinedload(Obj.photometry)
                     .joinedload(Photometry.instrument)
+                )
+            if include_spectra:
+                query_options.append(
+                    joinedload(Candidate.obj)
+                    .joinedload(Obj.spectra)
+                    .joinedload(Spectrum.instrument)
                 )
             c = Candidate.get_obj_if_readable_by(
                 obj_id, self.current_user, options=query_options,
@@ -338,7 +375,7 @@ class CandidateHandler(BaseHandler):
                 candidate_info["classifications"] = c.get_classifications_readable_by(
                     self.current_user
                 )
-            candidate_info["last_detected"] = c.last_detected
+            candidate_info["last_detected_at"] = c.last_detected_at
             candidate_info["gal_lon"] = c.gal_lon_deg
             candidate_info["gal_lat"] = c.gal_lat_deg
             candidate_info["luminosity_distance"] = c.luminosity_distance
@@ -349,12 +386,18 @@ class CandidateHandler(BaseHandler):
 
         page_number = self.get_query_argument("pageNumber", None) or 1
         n_per_page = self.get_query_argument("numPerPage", None) or 25
-        unsaved_only = self.get_query_argument("unsavedOnly", False)
+        saved_status = self.get_query_argument("savedStatus", "all")
         total_matches = self.get_query_argument("totalMatches", None)
         start_date = self.get_query_argument("startDate", None)
         end_date = self.get_query_argument("endDate", None)
         group_ids = self.get_query_argument("groupIDs", None)
         filter_ids = self.get_query_argument("filterIDs", None)
+        annotation_exclude_origin = self.get_query_argument(
+            'annotationExcludeOrigin', None
+        )
+        annotation_exclude_date = self.get_query_argument(
+            'annotationExcludeOutdatedDate', None
+        )
         sort_by_origin = self.get_query_argument("sortByAnnotationOrigin", None)
         annotation_filter_list = self.get_query_argument("annotationFilterList", None)
         classifications = self.get_query_argument("classifications", None)
@@ -439,15 +482,62 @@ class CandidateHandler(BaseHandler):
             # Don't apply the order by just yet. Save it so we can pass it to
             # the LIMT/OFFSET helper function down the line once other query
             # params are set.
-            order_by = [Obj.last_detected.desc().nullslast(), Obj.id]
-        if unsaved_only == "true":
-            q = q.filter(
-                Obj.id.notin_(
-                    DBSession()
-                    .query(Source.obj_id)
-                    .filter(Source.group_id.in_(group_ids))
-                )
+            order_by = [Obj.last_detected_at.desc().nullslast(), Obj.id]
+
+        if saved_status in [
+            "savedToAllSelected",
+            "savedToAnySelected",
+            "savedToAnyAccessible",
+            "notSavedToAnyAccessible",
+            "notSavedToAnySelected",
+            "notSavedToAllSelected",
+        ]:
+            notin = False
+            active_sources = (
+                DBSession().query(Source.obj_id).filter(Source.active.is_(True))
             )
+            if saved_status == "savedToAllSelected":
+                # Retrieve objects that have as many active saved groups that are
+                # in 'group_ids' as there are items in 'group_ids'
+                subquery = (
+                    active_sources.filter(Source.group_id.in_(group_ids))
+                    .group_by(Source.obj_id)
+                    .having(func.count(Source.group_id) == len(group_ids))
+                )
+            elif saved_status == "savedToAnySelected":
+                subquery = active_sources.filter(Source.group_id.in_(group_ids))
+            elif saved_status == "savedToAnyAccessible":
+                subquery = active_sources.filter(
+                    Source.group_id.in_(user_accessible_group_ids)
+                )
+            elif saved_status == "notSavedToAnyAccessible":
+                subquery = active_sources.filter(
+                    Source.group_id.in_(user_accessible_group_ids)
+                )
+                notin = True
+            elif saved_status == "notSavedToAnySelected":
+                subquery = active_sources.filter(Source.group_id.in_(group_ids))
+                notin = True
+            elif saved_status == "notSavedToAllSelected":
+                # Retrieve objects that have as many active saved groups that are
+                # in 'group_ids' as there are items in 'group_ids', and select
+                # the objects not in that set
+                subquery = (
+                    active_sources.filter(Source.group_id.in_(group_ids))
+                    .group_by(Source.obj_id)
+                    .having(func.count(Source.group_id) == len(group_ids))
+                )
+                notin = True
+            q = (
+                q.filter(Obj.id.notin_(subquery))
+                if notin
+                else q.filter(Obj.id.in_(subquery))
+            )
+        elif saved_status != "all":
+            return self.error(
+                f"Invalid savedStatus: {saved_status}. Must be one of the enumerated options."
+            )
+
         if start_date is not None and start_date.strip() not in [
             "",
             "null",
@@ -472,6 +562,31 @@ class CandidateHandler(BaseHandler):
             q = q.filter(
                 Obj.redshift >= redshift_range[0], Obj.redshift <= redshift_range[1]
             )
+
+        if annotation_exclude_origin is not None:
+
+            if annotation_exclude_date is None:
+                right = (
+                    DBSession()
+                    .query(Obj.id)
+                    .join(Annotation)
+                    .filter(Annotation.origin == annotation_exclude_origin)
+                    .subquery()
+                )
+            else:
+                expire_date = arrow.get(annotation_exclude_date).datetime
+                right = (
+                    DBSession()
+                    .query(Obj.id)
+                    .join(Annotation)
+                    .filter(
+                        Annotation.origin == annotation_exclude_origin,
+                        Annotation.modified >= expire_date,
+                    )
+                    .subquery()
+                )
+
+            q = q.outerjoin(right, Obj.id == right.c.id).filter(right.c.id.is_(None))
 
         if annotation_filter_list is not None:
             # Parse annotation filter list objects from the query string
@@ -559,7 +674,7 @@ class CandidateHandler(BaseHandler):
             order_by = [
                 origin_sort_order.nullslast(),
                 annotation_sort_criterion,
-                Obj.last_detected.desc().nullslast(),
+                Obj.last_detected_at.desc().nullslast(),
                 Obj.id,
             ]
         try:
@@ -571,6 +686,7 @@ class CandidateHandler(BaseHandler):
                 "candidates",
                 order_by=order_by,
                 include_photometry=include_photometry,
+                include_spectra=include_spectra,
             )
         except ValueError as e:
             if "Page number out of range" in str(e):
@@ -629,7 +745,7 @@ class CandidateHandler(BaseHandler):
                     obj.get_annotations_readable_by(self.current_user),
                     key=lambda x: x.origin,
                 )
-                candidate_list[-1]["last_detected"] = obj.last_detected
+                candidate_list[-1]["last_detected_at"] = obj.last_detected_at
                 candidate_list[-1]["gal_lat"] = obj.gal_lat_deg
                 candidate_list[-1]["gal_lon"] = obj.gal_lon_deg
                 candidate_list[-1]["luminosity_distance"] = obj.luminosity_distance
@@ -793,6 +909,7 @@ def grab_query_results(
     items_name,
     order_by=None,
     include_photometry=False,
+    include_spectra=False,
 ):
     # The query will return multiple rows per candidate object if it has multiple
     # annotations associated with it, with rows appearing at the end of the query
@@ -877,6 +994,8 @@ def grab_query_results(
         query_options.append(
             joinedload(Obj.photometry).joinedload(Photometry.instrument)
         )
+    if include_spectra:
+        query_options.append(joinedload(Obj.spectra).joinedload(Spectrum.instrument))
     for item_id in page_ids:
         items.append(Obj.query.options(query_options).get(item_id))
     info[items_name] = items

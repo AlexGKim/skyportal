@@ -4,7 +4,6 @@ import { useSelector, useDispatch } from "react-redux";
 
 import { makeStyles } from "@material-ui/core/styles";
 
-import Typography from "@material-ui/core/Typography";
 import CircularProgress from "@material-ui/core/CircularProgress";
 import SourceTable from "./SourceTable";
 
@@ -69,9 +68,10 @@ const GroupSources = ({ route }) => {
 
   const groupName = groups.filter((g) => g.id === groupID)[0]?.name || "";
 
-  const handleSavedSourcesTableSorting = (sortData) => {
+  const handleSavedSourcesTableSorting = (sortData, filterData) => {
     dispatch(
       sourcesActions.fetchSavedGroupSources({
+        ...filterData,
         group_ids: [route.id],
         pageNumber: 1,
         numPerPage: savedSourcesRowsPerPage,
@@ -84,10 +84,12 @@ const GroupSources = ({ route }) => {
   const handleSavedSourcesTablePagination = (
     pageNumber,
     numPerPage,
-    sortData
+    sortData,
+    filterData
   ) => {
     setSavedSourcesRowsPerPage(numPerPage);
     const data = {
+      ...filterData,
       group_ids: [route.id],
       pageNumber,
       numPerPage,
@@ -99,9 +101,10 @@ const GroupSources = ({ route }) => {
     dispatch(sourcesActions.fetchSavedGroupSources(data));
   };
 
-  const handlePendingSourcesTableSorting = (sortData) => {
+  const handlePendingSourcesTableSorting = (sortData, filterData) => {
     dispatch(
       sourcesActions.fetchPendingGroupSources({
+        ...filterData,
         group_ids: [route.id],
         pageNumber: 1,
         numPerPage: pendingSourcesRowsPerPage,
@@ -114,10 +117,12 @@ const GroupSources = ({ route }) => {
   const handlePendingSourcesTablePagination = (
     pageNumber,
     numPerPage,
-    sortData
+    sortData,
+    filterData
   ) => {
     setPendingSourcesRowsPerPage(numPerPage);
     const data = {
+      ...filterData,
       group_ids: [route.id],
       pageNumber,
       numPerPage,
@@ -129,33 +134,12 @@ const GroupSources = ({ route }) => {
     dispatch(sourcesActions.fetchPendingGroupSources(data));
   };
 
-  if (
-    savedSourcesState.sources?.length === 0 &&
-    pendingSourcesState.sources?.length === 0
-  ) {
-    return (
-      <div className={classes.source}>
-        <Typography variant="h4" gutterBottom align="center">
-          {`${groupName} sources`}
-        </Typography>
-        <br />
-        <Typography variant="h5" align="center">
-          No sources have been saved to this group yet.
-        </Typography>
-      </div>
-    );
-  }
-
   return (
     <div className={classes.source}>
-      <Typography variant="h4" gutterBottom align="center">
-        {`${groupName} sources`}
-      </Typography>
-      <br />
       {!!savedSourcesState.sources && (
         <SourceTable
           sources={savedSourcesState.sources}
-          title="Saved"
+          title={`${groupName} sources`}
           sourceStatus="saved"
           groupID={groupID}
           paginateCallback={handleSavedSourcesTablePagination}

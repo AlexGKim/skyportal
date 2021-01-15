@@ -168,7 +168,9 @@ def test_request_source(
     driver.get(f"/group_sources/{public_group2.id}")
 
     # there should not be any new sources (the source is in group1)
-    driver.wait_for_xpath("//*[text()[contains(., 'No sources')]]")
+    driver.wait_for_xpath(
+        f"//div[@data-testid='source_table_{public_group2.name} sources']//*[text()[contains(., 'Sorry, no matching records found')]]"
+    )
 
     # request this source to be added to group2
     status, data = api(
