@@ -1,4 +1,19 @@
 streams:
+  - name: ZTF Public
+    altdata:
+      collection: ZTF_alerts
+      selector: [1]
+    =id: ztf_public
+  - name: ZTF Public+Partnership
+    altdata:
+      collection: ZTF_alerts
+      selector: [1, 2]
+    =id: ztf_partnership
+  - name: ZTF Public+Partnership+Caltech
+    altdata:
+      collection: ZTF_alerts
+      selector: [1, 2, 3]
+    =id: ztf_caltech
   - name: DESI Public
     altdata:
       collection: DESI_alerts
@@ -13,19 +28,51 @@ streams:
 groups:
   - name: DESI_Test1
     =id: DESI_Test1
+  - name: Wayne_State
+    =id: Wayne_State
+  - name: DESITRIP_daily
+    =id: DESITRIP_daily_G
+  - name: DESIDIFF_CV_daily
+    =id: DESIDIFF_CV_daily_G
+  - name: ANTARES
+    =id: ANTARES_G
+  - name: MOST_Hosts
+    =id: MOST_Hosts_G
+  - name: ZTF
+    =id: ZTF_G
 
 groups/=DESI_Test1/streams:
+  - stream_id: =desi_private
+groups/=Wayne_State/streams:
+  - stream_id: =desi_private
+groups/=DESITRIP_daily_G/streams:
+  - stream_id: =desi_private
+groups/=DESIDIFF_CV_daily_G/streams:
+  - stream_id: =desi_private
+groups/=ANTARES_G/streams:
+  - stream_id: =ztf_public
+groups/=MOST_Hosts_G/streams:
+  - stream_id: =ztf_public
+groups/=ZTF_G/streams:
   - stream_id: =desi_private
 
 filters:
   - name: DESITRIP_daily
-    group_id: =DESI_Test1
+    group_id: =DESITRIP_daily_G
     stream_id: =desi_private
     =id: DESITRIP_daily
   - name: DESIDIFF_CV_daily
-    group_id: =DESI_Test1
+    group_id: =DESIDIFF_CV_daily_G
     stream_id: =desi_private
     =id: DESIDIFF_CV_daily
+  - name: ANTARES
+    group_id: ANTARES_G
+    stream_id: =ztf_public
+    =id: ANTARES
+  - name: MOST_Hosts
+    group_id: MOST_Hosts_G
+    stream_id: = MOST_Hosts
+    =id: MOST_Hosts
 
 telescope:
   - name: Kitt Peak Mayall 4-m Telescope
