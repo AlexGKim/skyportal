@@ -31,9 +31,10 @@ from ...models import (
     SourceNotification,
     Classification,
     Taxonomy,
+    Listing,
     Spectrum,
+    SourceView,
 )
-from .internal.source_views import register_source_view
 from ...utils import (
     get_nearby_offset_stars,
     facility_parameters,
@@ -43,7 +44,7 @@ from ...utils import (
 )
 from .candidate import grab_query_results, update_redshift_history_if_relevant
 from .photometry import serialize
-
+from .color_mag import get_color_mag
 
 SOURCES_PER_PAGE = 100
 
@@ -69,6 +70,9 @@ def add_ps1_thumbnail_and_push_ws_msg(obj, request_handler):
         return request_handler.error(f"Unable to generate PS1 thumbnail URL: {e}")
     request_handler.push_all(
         action="skyportal/REFRESH_SOURCE", payload={"obj_key": obj.internal_key}
+    )
+    request_handler.push_all(
+        action="skyportal/REFRESH_CANDIDATE", payload={"id": obj.internal_key}
     )
 
 
@@ -105,6 +109,7 @@ class SourceHandler(BaseHandler):
             .filter(Source.group_id.in_(user_group_ids))
             .count()
         )
+        self.verify_permissions()
         if num_s > 0:
             return self.success()
         else:
@@ -243,6 +248,13 @@ class SourceHandler(BaseHandler):
               Arrow-parseable date string (e.g. 2020-01-01). If provided, filter by
               last_detected_at <= endDate
           - in: query
+            name: listName
+            nullable: true
+            schema:
+              type: string
+            description: |
+              Get only sources saved to the querying user's list, e.g., "favorites".
+          - in: query
             name: group_ids
             nullable: true
             schema:
@@ -259,6 +271,20 @@ class SourceHandler(BaseHandler):
             description: |
               Boolean indicating whether to include associated photometry. Defaults to
               false.
+          - in: query
+            name: includeColorMagnitude
+            nullable: true
+            schema:
+              type: boolean
+            description: |
+              Boolean indicating whether to include the color-magnitude data from Gaia.
+              This will only include data for objects that have an annotation
+              with the appropriate format: a key named Gaia that contains a dictionary
+              with keys named Mag_G, Mag_Bp, Mag_Rp, and Plx
+              (underscores and case are ignored when matching all the above keys).
+              The result is saved in a field named 'color_magnitude'.
+              If no data is available, returns an empty array.
+              Defaults to false (do not search for nor include this info).
           - in: query
             name: includeRequested
             nullable: true
@@ -445,8 +471,10 @@ class SourceHandler(BaseHandler):
         radius = self.get_query_argument('radius', None)
         start_date = self.get_query_argument('startDate', None)
         end_date = self.get_query_argument('endDate', None)
+        list_name = self.get_query_argument('listName', None)
         sourceID = self.get_query_argument('sourceID', None)  # Partial ID to match
         include_photometry = self.get_query_argument("includePhotometry", False)
+        include_color_mag = self.get_query_argument("includeColorMagnitude", False)
         include_requested = self.get_query_argument("includeRequested", False)
         requested_only = self.get_query_argument("pendingOnly", False)
         saved_after = self.get_query_argument('savedAfter', None)
@@ -542,7 +570,9 @@ class SourceHandler(BaseHandler):
             ]
 
             s = Obj.get_if_readable_by(
-                obj_id, self.current_user, options=query_options,
+                obj_id,
+                self.current_user,
+                options=query_options,
             )
 
             if s is None:
@@ -550,11 +580,13 @@ class SourceHandler(BaseHandler):
 
             if is_token_request:
                 # Logic determining whether to register front-end request as view lives in front-end
-                register_source_view(
+                sv = SourceView(
                     obj_id=obj_id,
                     username_or_token_id=self.current_user.id,
                     is_token=True,
                 )
+                DBSession.add(sv)
+                self.finalize_transaction()
 
             if "ps1" not in [thumb.type for thumb in s.thumbnails]:
                 IOLoop.current().add_callback(
@@ -636,6 +668,10 @@ class SourceHandler(BaseHandler):
                     if source_table_row.saved_by is not None
                     else None
                 )
+            if include_color_mag:
+                source_info["color_magnitude"] = get_color_mag(
+                    source_info["annotations"]
+                )
 
             # add the date(s) this source was saved to each of these groups
             for i, g in enumerate(source_info["groups"]):
@@ -650,10 +686,12 @@ class SourceHandler(BaseHandler):
                 )
                 source_info["groups"][i]['saved_at'] = saved_at
 
+            self.verify_permissions()
             return self.success(data=source_info)
 
         # Fetch multiple sources
         query_options = [joinedload(Obj.thumbnails)]
+
         if not save_summary:
             q = (
                 DBSession()
@@ -674,6 +712,8 @@ class SourceHandler(BaseHandler):
                 .filter(Source.group_id.in_(user_accessible_group_ids))
             )
 
+        if list_name:
+            q = q.join(Listing)
         if classifications is not None or sort_by == "classification":
             q = q.join(Classification, isouter=True)
             if classifications is not None:
@@ -707,6 +747,11 @@ class SourceHandler(BaseHandler):
             q = q.filter(Source.saved_at <= saved_before)
         if saved_after:
             q = q.filter(Source.saved_at >= saved_after)
+        if list_name:
+            q = q.filter(
+                Listing.list_name == list_name,
+                Listing.user_id == self.associated_user_object.id,
+            )
         if simbad_class:
             q = q.filter(
                 func.lower(Obj.altdata['simbad']['class'].astext)
@@ -947,6 +992,10 @@ class SourceHandler(BaseHandler):
                         if source_table_row.saved_by is not None
                         else None
                     )
+                if include_color_mag:
+                    source_list[-1]["color_magnitude"] = get_color_mag(
+                        source_list[-1]["annotations"]
+                    )
 
                 # add the date(s) this source was saved to each of these groups
                 for i, g in enumerate(source_list[-1]["groups"]):
@@ -963,6 +1012,7 @@ class SourceHandler(BaseHandler):
                     source_list[-1]["groups"][i]['saved_at'] = saved_at
             query_results["sources"] = source_list
 
+        self.verify_permissions()
         return self.success(data=query_results)
 
     @permissions(['Upload data'])
@@ -1054,16 +1104,24 @@ class SourceHandler(BaseHandler):
         update_redshift_history_if_relevant(data, obj, self.associated_user_object)
 
         DBSession().add(obj)
-        DBSession().add_all(
-            [
-                Source(obj=obj, group=group, saved_by_id=self.associated_user_object.id)
-                for group in groups
-            ]
-        )
-        DBSession().commit()
+        for group in groups:
+            source = (
+                Source.query.filter(Source.obj_id == obj.id)
+                .filter(Source.group_id == group.id)
+                .first()
+            )
+            if source is not None:
+                source.active = True
+                source.saved_by = self.associated_user_object
+            else:
+                DBSession().add(
+                    Source(
+                        obj=obj, group=group, saved_by_id=self.associated_user_object.id
+                    )
+                )
+        self.finalize_transaction()
         if not obj_already_exists:
             obj.add_linked_thumbnails()
-
         # If we're updating a source
         if previously_saved is not None:
             self.push_all(
@@ -1115,9 +1173,10 @@ class SourceHandler(BaseHandler):
                 'Invalid/missing parameters: ' f'{e.normalized_messages()}'
             )
         update_redshift_history_if_relevant(data, obj, self.associated_user_object)
-        DBSession().commit()
+        self.finalize_transaction()
         self.push_all(
-            action="skyportal/REFRESH_SOURCE", payload={"obj_key": obj.internal_key},
+            action="skyportal/REFRESH_SOURCE",
+            payload={"obj_key": obj.internal_key},
         )
 
         return self.success(action='skyportal/FETCH_SOURCES')
@@ -1157,7 +1216,7 @@ class SourceHandler(BaseHandler):
         )
         s.active = False
         s.unsaved_by = self.current_user
-        DBSession().commit()
+        self.finalize_transaction()
 
         return self.success(action='skyportal/FETCH_SOURCES')
 
@@ -1286,7 +1345,9 @@ class SourceOffsetsHandler(BaseHandler):
                 schema: Error
         """
         source = Obj.get_if_readable_by(
-            obj_id, self.current_user, options=[joinedload(Obj.photometry)],
+            obj_id,
+            self.current_user,
+            options=[joinedload(Obj.photometry)],
         )
         if source is None:
             return self.error('Source not found', status=404)
@@ -1363,6 +1424,7 @@ class SourceOffsetsHandler(BaseHandler):
             [x["str"].replace(" ", "&nbsp;") for x in starlist_info]
         )
 
+        self.verify_permissions()
         return self.success(
             data={
                 'facility': facility,
@@ -1459,7 +1521,9 @@ class SourceFinderHandler(BaseHandler):
                 schema: Error
         """
         source = Obj.get_if_readable_by(
-            obj_id, self.current_user, options=[joinedload(Obj.photometry)],
+            obj_id,
+            self.current_user,
+            options=[joinedload(Obj.photometry)],
         )
         if source is None:
             return self.error('Source not found', status=404)
@@ -1572,6 +1636,8 @@ class SourceFinderHandler(BaseHandler):
         self.set_header(
             'Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0'
         )
+
+        self.verify_permissions()
 
         for i in range(math.ceil(max_file_size / chunk_size)):
             chunk = image.read(chunk_size)
@@ -1713,7 +1779,7 @@ class SourceNotificationHandler(BaseHandler):
         )
         DBSession().add(new_notification)
         try:
-            DBSession().commit()
+            self.finalize_transaction()
         except python_http_client.exceptions.UnauthorizedError:
             return self.error(
                 "Twilio Sendgrid authorization error. Please ensure "
@@ -1728,3 +1794,17 @@ class SourceNotificationHandler(BaseHandler):
             )
 
         return self.success(data={'id': new_notification.id})
+
+
+class PS1ThumbnailHandler(BaseHandler):
+    @auth_or_token
+    def post(self):
+        data = self.get_json()
+        obj_id = data.get("objID")
+        if obj_id is None:
+            return self.error("Missing required paramter objID")
+        obj = Obj.get_if_readable_by(obj_id, self.current_user)
+        IOLoop.current().add_callback(
+            lambda: add_ps1_thumbnail_and_push_ws_msg(obj, self)
+        )
+        return self.success()

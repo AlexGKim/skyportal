@@ -34,6 +34,7 @@ from skyportal.handlers.api import (
     BulkDeletePhotometryHandler,
     ObjPhotometryHandler,
     ObjClassificationHandler,
+    ObjAnnotationHandler,
     PhotometryRangeHandler,
     RoleHandler,
     UserRoleHandler,
@@ -44,11 +45,13 @@ from skyportal.handlers.api import (
     SourceNotificationHandler,
     ObjGroupsHandler,
     SourceGroupsHandler,
+    ObjColorMagHandler,
     SpectrumHandler,
     SpectrumASCIIFileHandler,
     SpectrumASCIIFileParser,
     SpectrumRangeHandler,
     ObjSpectraHandler,
+    StatsHandler,
     StreamHandler,
     StreamUserHandler,
     SysInfoHandler,
@@ -57,6 +60,7 @@ from skyportal.handlers.api import (
     ThumbnailHandler,
     UserHandler,
     WeatherHandler,
+    PS1ThumbnailHandler,
 )
 from skyportal.handlers.api.internal import (
     PlotPhotometryHandler,
@@ -74,6 +78,8 @@ from skyportal.handlers.api.internal import (
     AnnotationsInfoHandler,
     EphemerisHandler,
     StandardsHandler,
+    NotificationHandler,
+    BulkNotificationHandler,
 )
 
 from . import models, model_util, openapi
@@ -86,6 +92,7 @@ skyportal_handlers = [
     (r'/api/acls', ACLHandler),
     (r'/api/allocation(/.*)?', AllocationHandler),
     (r'/api/assignment(/.*)?', AssignmentHandler),
+    (r'/api/candidates(/[0-9A-Za-z-_]+)/([0-9]+)', CandidateHandler),
     (r'/api/candidates(/.*)?', CandidateHandler),
     (r'/api/classification(/[0-9]+)?', ClassificationHandler),
     (r'/api/comment(/[0-9]+)?', CommentHandler),
@@ -101,7 +108,10 @@ skyportal_handlers = [
     (r'/api/groups/public', PublicGroupHandler),
     (r'/api/groups(/[0-9]+)/streams(/[0-9]+)?', GroupStreamHandler),
     (r'/api/groups(/[0-9]+)/users(/.*)?', GroupUserHandler),
-    (r'/api/groups(/[0-9]+)/usersFromGroups(/.*)?', GroupUsersFromOtherGroupsHandler,),
+    (
+        r'/api/groups(/[0-9]+)/usersFromGroups(/.*)?',
+        GroupUsersFromOtherGroupsHandler,
+    ),
     (r'/api/groups(/[0-9]+)?', GroupHandler),
     (r'/api/listing(/[0-9]+)?', UserObjListHandler),
     (r'/api/group_admission_requests(/[0-9]+)?', GroupAdmissionRequestHandler),
@@ -119,7 +129,9 @@ skyportal_handlers = [
     (r'/api/sources(/[0-9A-Za-z-_]+)/offsets', SourceOffsetsHandler),
     (r'/api/sources(/[0-9A-Za-z-_]+)/finder', SourceFinderHandler),
     (r'/api/sources(/[0-9A-Za-z-_]+)/classifications', ObjClassificationHandler),
+    (r'/api/sources(/[0-9A-Za-z-_]+)/annotations', ObjAnnotationHandler),
     (r'/api/sources(/[0-9A-Za-z-_]+)/groups', ObjGroupsHandler),
+    (r'/api/sources(/[0-9A-Za-z-_]+)/color_mag', ObjColorMagHandler),
     (r'/api/sources(/.*)?', SourceHandler),
     (r'/api/source_notifications', SourceNotificationHandler),
     (r'/api/source_groups(/.*)?', SourceGroupsHandler),
@@ -129,6 +141,7 @@ skyportal_handlers = [
     (r'/api/spectrum/range(/.*)?', SpectrumRangeHandler),
     (r'/api/streams(/[0-9]+)/users(/.*)?', StreamUserHandler),
     (r'/api/streams(/[0-9]+)?', StreamHandler),
+    (r'/api/db_stats', StatsHandler),
     (r'/api/sysinfo', SysInfoHandler),
     (r'/api/taxonomy(/.*)?', TaxonomyHandler),
     (r'/api/telescope(/[0-9]+)?', TelescopeHandler),
@@ -147,11 +160,17 @@ skyportal_handlers = [
     (r'/api/internal/instrument_forms', RoboticInstrumentsHandler),
     (r'/api/internal/standards', StandardsHandler),
     (r'/api/internal/plot/airmass/assignment/(.*)', PlotAssignmentAirmassHandler),
-    (r'/api/internal/plot/airmass/objtel/(.*)/([0-9]+)', PlotObjTelAirmassHandler,),
+    (
+        r'/api/internal/plot/airmass/objtel/(.*)/([0-9]+)',
+        PlotObjTelAirmassHandler,
+    ),
     (r'/api/internal/ephemeris/([0-9]+)', EphemerisHandler),
     (r'/api/internal/log', LogHandler),
     (r'/api/internal/recent_sources(/.*)?', RecentSourcesHandler),
     (r'/api/internal/annotations_info', AnnotationsInfoHandler),
+    (r'/api/internal/notifications(/[0-9]+)?', NotificationHandler),
+    (r'/api/internal/notifications/all', BulkNotificationHandler),
+    (r'/api/internal/ps1_thumbnail', PS1ThumbnailHandler),
     (r'/api/.*', InvalidEndpointHandler),
     (r'/become_user(/.*)?', BecomeUserHandler),
     (r'/logout', LogoutHandler),
@@ -229,7 +248,7 @@ def make_app(cfg, baselayer_handlers, baselayer_settings, process=None, env=None
     )
 
     app = tornado.web.Application(handlers, **settings)
-    models.init_db(**cfg['database'])
+    models.init_db(**cfg['database'], autoflush=False)
 
     # If tables are found in the database, new tables will only be added
     # in debug mode.  In production, we leave the tables alone, since

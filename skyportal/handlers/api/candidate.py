@@ -76,6 +76,7 @@ class CandidateHandler(BaseHandler):
             .filter(Candidate.obj_id == obj_id, Filter.group_id.in_(user_group_ids))
             .count()
         )
+        self.verify_permissions()
         if num_c > 0:
             return self.success()
         else:
@@ -116,7 +117,8 @@ class CandidateHandler(BaseHandler):
             schema:
               type: integer
             description: |
-              Number of candidates to return per paginated request. Defaults to 25
+              Number of candidates to return per paginated request. Defaults to 25.
+              Capped at 500.
           - in: query
             name: pageNumber
             nullable: true
@@ -319,7 +321,9 @@ class CandidateHandler(BaseHandler):
                     .joinedload(Spectrum.instrument)
                 )
             c = Candidate.get_obj_if_readable_by(
-                obj_id, self.current_user, options=query_options,
+                obj_id,
+                self.current_user,
+                options=query_options,
             )
             if c is None:
                 return self.error("Invalid ID")
@@ -381,7 +385,7 @@ class CandidateHandler(BaseHandler):
             candidate_info["luminosity_distance"] = c.luminosity_distance
             candidate_info["dm"] = c.dm
             candidate_info["angular_diameter_distance"] = c.angular_diameter_distance
-
+            self.verify_permissions()
             return self.success(data=candidate_info)
 
         page_number = self.get_query_argument("pageNumber", None) or 1
@@ -451,7 +455,19 @@ class CandidateHandler(BaseHandler):
             n_per_page = int(n_per_page)
         except ValueError:
             return self.error("Invalid numPerPage value.")
+        n_per_page = min(n_per_page, 500)
 
+        initial_candidate_filter_criteria = [Candidate.filter_id.in_(filter_ids)]
+        if start_date is not None and start_date.strip() not in [
+            "",
+            "null",
+            "undefined",
+        ]:
+            start_date = arrow.get(start_date).datetime
+            initial_candidate_filter_criteria.append(Candidate.passed_at >= start_date)
+        if end_date is not None and end_date.strip() not in ["", "null", "undefined"]:
+            end_date = arrow.get(end_date).datetime
+            initial_candidate_filter_criteria.append(Candidate.passed_at <= end_date)
         # We'll join in the nested data for Obj (like photometry) later
         q = (
             DBSession()
@@ -461,7 +477,7 @@ class CandidateHandler(BaseHandler):
                 Obj.id.in_(
                     DBSession()
                     .query(Candidate.obj_id)
-                    .filter(Candidate.filter_id.in_(filter_ids))
+                    .filter(*initial_candidate_filter_criteria)
                 )
             )
             .outerjoin(Annotation)
@@ -482,7 +498,7 @@ class CandidateHandler(BaseHandler):
             # Don't apply the order by just yet. Save it so we can pass it to
             # the LIMT/OFFSET helper function down the line once other query
             # params are set.
-            order_by = [Obj.last_detected_at.desc().nullslast(), Obj.id]
+            order_by = [Candidate.passed_at.desc().nullslast(), Obj.id]
 
         if saved_status in [
             "savedToAllSelected",
@@ -538,16 +554,6 @@ class CandidateHandler(BaseHandler):
                 f"Invalid savedStatus: {saved_status}. Must be one of the enumerated options."
             )
 
-        if start_date is not None and start_date.strip() not in [
-            "",
-            "null",
-            "undefined",
-        ]:
-            start_date = arrow.get(start_date).datetime
-            q = q.filter(Candidate.passed_at >= start_date)
-        if end_date is not None and end_date.strip() not in ["", "null", "undefined"]:
-            end_date = arrow.get(end_date).datetime
-            q = q.filter(Candidate.passed_at <= end_date)
         if redshift_range_str is not None:
             redshift_range = ast.literal_eval(redshift_range_str)
             if not (
@@ -662,7 +668,9 @@ class CandidateHandler(BaseHandler):
             # Define a custom sort order to have annotations from the correct
             # origin first, all others afterwards
             origin_sort_order = case(
-                value=Annotation.origin, whens={sort_by_origin: 1}, else_=None,
+                value=Annotation.origin,
+                whens={sort_by_origin: 1},
+                else_=None,
             )
             annotation_sort_criterion = (
                 Annotation.data[sort_by_key].desc().nullslast()
@@ -674,7 +682,7 @@ class CandidateHandler(BaseHandler):
             order_by = [
                 origin_sort_order.nullslast(),
                 annotation_sort_criterion,
-                Obj.last_detected_at.desc().nullslast(),
+                Candidate.passed_at.desc().nullslast(),
                 Obj.id,
             ]
         try:
@@ -755,6 +763,7 @@ class CandidateHandler(BaseHandler):
                 ] = obj.angular_diameter_distance
 
         query_results["candidates"] = candidate_list
+        self.verify_permissions()
         return self.success(data=query_results)
 
     @permissions(["Upload data"])
@@ -864,22 +873,27 @@ class CandidateHandler(BaseHandler):
             for filter in filters
         ]
         DBSession().add_all(candidates)
-        DBSession().commit()
+        self.finalize_transaction()
         if not obj_already_exists:
             obj.add_linked_thumbnails()
 
         return self.success(data={"ids": [c.id for c in candidates]})
 
     @auth_or_token
-    def delete(self, candidate_id):
+    def delete(self, obj_id, filter_id):
         """
         ---
-        description: Delete a candidate
+        description: Delete candidate(s)
         tags:
           - candidates
         parameters:
           - in: path
-            name: candidate_id
+            name: obj_id
+            required: true
+            schema:
+              type: string
+          - in: path
+            name: filter_id
             required: true
             schema:
               type: integer
@@ -889,14 +903,29 @@ class CandidateHandler(BaseHandler):
               application/json:
                 schema: Success
         """
-        c = Candidate.query.get(candidate_id)
-        if not (
-            self.associated_user_object.is_system_admin
-            or c.uploader_id == self.associated_user_object.id
-        ):
-            return self.error("Insufficient permissions.")
-        DBSession().delete(c)
-        DBSession().commit()
+        cands = (
+            Candidate.query.filter(Candidate.obj_id == obj_id)
+            .filter(Candidate.filter_id == filter_id)
+            .all()
+        )
+        if not cands:
+            return self.error(
+                "Invalid (obj_id, filter_id) combination - "
+                "no matching candidates found."
+            )
+        for c in cands:
+            if not (
+                self.associated_user_object.is_system_admin
+                or c.uploader_id == self.associated_user_object.id
+            ):
+                return self.error(
+                    "Insufficient permissions for candidate w/ "
+                    f"passed_at={c.passed_at}"
+                )
+        DBSession().query(Candidate).filter(Candidate.obj_id == obj_id).filter(
+            Candidate.filter_id == filter_id
+        ).delete(synchronize_session="fetch")
+        self.finalize_transaction()
 
         return self.success()
 

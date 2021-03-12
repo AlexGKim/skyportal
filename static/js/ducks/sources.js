@@ -1,3 +1,4 @@
+import messageHandler from "baselayer/MessageHandler";
 import * as API from "../API";
 import store from "../store";
 
@@ -12,6 +13,11 @@ const FETCH_PENDING_GROUP_SOURCES = "skyportal/FETCH_PENDING_GROUP_SOURCES";
 const FETCH_PENDING_GROUP_SOURCES_OK =
   "skyportal/FETCH_PENDING_GROUP_SOURCES_OK";
 
+const FETCH_FAVORITE_SOURCES = "skyportal/FETCH_FAVORITE_SOURCES";
+const FETCH_FAVORITE_SOURCES_OK = "skyportal/FETCH_FAVORITE_SOURCES_OK";
+
+const REFRESH_FAVORITE_SOURCES = "skyportal/REFRESH_FAVORITE_SOURCES";
+
 const addFilterParamDefaults = (filterParams) => {
   if (!Object.keys(filterParams).includes("pageNumber")) {
     filterParams.pageNumber = 1;
@@ -25,6 +31,7 @@ export function fetchSources(filterParams = {}) {
   addFilterParamDefaults(filterParams);
   filterParams.includePhotometryExists = true;
   filterParams.includeSpectrumExists = true;
+  filterParams.includeColorMagnitude = true;
   return API.GET("/api/sources", FETCH_SOURCES, filterParams);
 }
 
@@ -32,6 +39,7 @@ export function fetchSavedGroupSources(filterParams = {}) {
   addFilterParamDefaults(filterParams);
   filterParams.includePhotometryExists = true;
   filterParams.includeSpectrumExists = true;
+  filterParams.includeColorMagnitude = true;
   return API.GET("/api/sources", FETCH_SAVED_GROUP_SOURCES, filterParams);
 }
 
@@ -40,7 +48,17 @@ export function fetchPendingGroupSources(filterParams = {}) {
   filterParams.pendingOnly = true;
   filterParams.includePhotometryExists = true;
   filterParams.includeSpectrumExists = true;
+  filterParams.includeColorMagnitude = true;
   return API.GET("/api/sources", FETCH_PENDING_GROUP_SOURCES, filterParams);
+}
+
+export function fetchFavoriteSources(filterParams = {}) {
+  addFilterParamDefaults(filterParams);
+  filterParams.includePhotometryExists = true;
+  filterParams.includeSpectrumExists = true;
+  filterParams.listName = "favorites";
+  filterParams.includeColorMagnitude = true;
+  return API.GET("/api/sources", FETCH_FAVORITE_SOURCES, filterParams);
 }
 
 const initialState = {
@@ -49,6 +67,13 @@ const initialState = {
   totalMatches: 0,
   numPerPage: 10,
 };
+
+// Websocket message handler
+messageHandler.add((actionType, payload, dispatch) => {
+  if (actionType === REFRESH_FAVORITE_SOURCES) {
+    dispatch(fetchFavoriteSources());
+  }
+});
 
 const reducer = (
   state = {
@@ -90,6 +115,12 @@ const reducer = (
       return {
         ...state,
         pendingGroupSources: action.data,
+      };
+    }
+    case FETCH_FAVORITE_SOURCES_OK: {
+      return {
+        ...state,
+        favorites: action.data,
       };
     }
     default:

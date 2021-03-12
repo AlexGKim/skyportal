@@ -3,7 +3,8 @@ from .allocation import AllocationHandler
 from .candidate import CandidateHandler
 from .classification import ClassificationHandler, ObjClassificationHandler
 from .comment import CommentHandler, CommentAttachmentHandler
-from .annotation import AnnotationHandler
+from .annotation import AnnotationHandler, ObjAnnotationHandler
+from .db_stats import StatsHandler
 from .filter import FilterHandler
 from .followup_request import FollowupRequestHandler, AssignmentHandler
 from .facility_listener import FacilityMessageHandler
@@ -28,6 +29,7 @@ from .photometry import (
     BulkDeletePhotometryHandler,
     PhotometryRangeHandler,
 )
+from .color_mag import ObjColorMagHandler
 from .public_group import PublicGroupHandler
 from .roles import RoleHandler, UserRoleHandler
 from .sharing import SharingHandler
@@ -36,6 +38,7 @@ from .source import (
     SourceOffsetsHandler,
     SourceFinderHandler,
     SourceNotificationHandler,
+    PS1ThumbnailHandler,
 )
 from .source_groups import SourceGroupsHandler
 from .spectrum import (

@@ -75,7 +75,7 @@ class GaiaQuery:
             self.is_backup = False
             self.connection = g
             return True
-        except HTTPError:
+        except (HTTPError, ConnectionResetError):
             log("Warning: main Gaia TAP+ server failed")
             self.is_backup = True
 
@@ -199,6 +199,12 @@ JOBLIB_CACHE_SIZE = 100e6  # 100 MB
 offsets_memory = Memory("./cache/offsets/", verbose=0, bytes_limit=JOBLIB_CACHE_SIZE)
 
 
+def memcache(f):
+    """Ensure that joblib memory cache stays within bytes limit."""
+    offsets_memory.reduce_size()
+    return offsets_memory.cache(f)
+
+
 def get_url(*args, **kwargs):
     # Connect and read timeouts
     kwargs['timeout'] = (6.05, 20)
@@ -208,7 +214,7 @@ def get_url(*args, **kwargs):
         return None
 
 
-@offsets_memory.cache
+@memcache
 def get_ztfref_url(ra, dec, imsize, *args, **kwargs):
     """
     From:
@@ -300,7 +306,7 @@ source_image_parameters = {
 }
 
 
-@offsets_memory.cache
+@memcache
 def get_ztfcatalog(ra, dec, cache_dir="./cache/finder_cat/", cache_max_items=1000):
     """Finds the ZTF public catalog data around this position
 
@@ -394,7 +400,11 @@ def _calculate_best_position_for_offset_stars(
     # remove observations with distances more than max_offset away
     # from the median
     try:
-        med_ra, med_dec = np.median(df["ra"]), np.median(df["dec"])
+        # use nanmedian so that med_ra, med_dec are not returned as
+        # nan when df['ra'] or df['dec'] contains `None`s (can happen
+        # when there is no position information for a photometry
+        # point)
+        med_ra, med_dec = np.nanmedian(df["ra"]), np.nanmedian(df["dec"])
     except TypeError:
         log(
             "Warning: could not find the median of the positions"
@@ -559,7 +569,7 @@ def get_formatted_standards_list(
 
 @warningfilter(action="ignore", category=DeprecationWarning)
 @warningfilter(action="ignore", category=AstropyWarning)
-@offsets_memory.cache
+@memcache
 def get_nearby_offset_stars(
     source_ra,
     source_dec,
@@ -663,11 +673,12 @@ def get_nearby_offset_stars(
                   AND phot_rp_mean_mag < {mag_limit + fainter_diff}
                   AND phot_rp_mean_mag > {mag_min}
                   AND parallax < 250
-                  ORDER BY phot_rp_mean_mag ASC
                 """
 
     g = GaiaQuery()
     r = g.query(query_string)
+    # get brighter stars at top:
+    r.sort("phot_rp_mean_mag")
     queries_issued += 1
 
     catalog = SkyCoord.guess_from_table(r)
@@ -910,8 +921,7 @@ def fits_image(
     cache = Cache(cache_dir=cache_dir, max_items=cache_max_items)
 
     def get_hdu(url):
-        """Try to get HDU from cache, otherwise fetch.
-        """
+        """Try to get HDU from cache, otherwise fetch."""
         hash_name = f'{center_ra}{center_dec}{imsize}{image_source}'
         hdu_fn = cache[hash_name]
 

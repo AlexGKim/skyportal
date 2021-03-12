@@ -15,6 +15,7 @@ from ...models import (
     Stream,
     User,
     Token,
+    UserNotification,
 )
 
 _, cfg = load_env()
@@ -27,7 +28,9 @@ def has_admin_access_for_group(user, group_id):
         .first()
     )
     return len(
-        {"System admin", "Manage groups"}.intersection(set(user.permissions))
+        {"System admin", "Manage groups", "Manage_users"}.intersection(
+            set(user.permissions)
+        )
     ) > 0 or (groupuser is not None and groupuser.admin)
 
 
@@ -46,6 +49,13 @@ class GroupHandler(BaseHandler):
               required: true
               schema:
                 type: integer
+            - in: query
+              name: includeGroupUsers
+              nullable: true
+              schema:
+                type: boolean
+              description: |
+                Boolean indicating whether to include group users. Defaults to true.
           responses:
             200:
               content:
@@ -135,22 +145,34 @@ class GroupHandler(BaseHandler):
             ) and group.id not in [g.id for g in self.current_user.accessible_groups]:
                 return self.error('Insufficient permissions.')
 
+            if self.get_query_argument("includeGroupUsers", "true").lower() in (
+                "f",
+                "false",
+            ):
+                include_group_users = False
+            else:
+                include_group_users = True
             # Do not include User.groups to avoid circular reference
-            users = [
-                {
-                    "id": user.id,
-                    "username": user.username,
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "contact_email": user.contact_email,
-                    "contact_phone": user.contact_phone,
-                    "oauth_uid": user.oauth_uid,
-                    "admin": has_admin_access_for_group(user, group_id),
-                }
-                for user in group.users
-            ]
+            users = (
+                [
+                    {
+                        "id": user.id,
+                        "username": user.username,
+                        "first_name": user.first_name,
+                        "last_name": user.last_name,
+                        "contact_email": user.contact_email,
+                        "contact_phone": user.contact_phone,
+                        "oauth_uid": user.oauth_uid,
+                        "admin": has_admin_access_for_group(user, group_id),
+                    }
+                    for user in group.users
+                ]
+                if include_group_users
+                else None
+            )
             group = group.to_dict()
-            group['users'] = users
+            if users is not None:
+                group['users'] = users
             # grab streams:
             streams = (
                 DBSession()
@@ -166,6 +188,7 @@ class GroupHandler(BaseHandler):
             )
             group['filters'] = filters
 
+            self.verify_permissions()
             return self.success(data=group)
         group_name = self.get_query_argument("name", None)
         if group_name is not None:
@@ -175,6 +198,7 @@ class GroupHandler(BaseHandler):
                 [group in self.current_user.accessible_groups for group in groups]
             ):
                 return self.error("Insufficient permissions")
+            self.verify_permissions()
             return self.success(data=groups)
 
         include_single_user_groups = self.get_query_argument(
@@ -199,6 +223,8 @@ class GroupHandler(BaseHandler):
         info["all_groups"] = sorted(
             all_groups_query.all(), key=lambda g: g.name.lower()
         )
+        self.verify_permissions()
+
         return self.success(data=info)
 
     @auth_or_token
@@ -259,11 +285,12 @@ class GroupHandler(BaseHandler):
 
         g = Group(name=data["name"], nickname=data.get("nickname") or None)
         DBSession().add(g)
+        self.verify_permissions()
         DBSession().flush()
         DBSession().add_all(
             [GroupUser(group=g, user=user, admin=True) for user in group_admins]
         )
-        DBSession().commit()
+        self.finalize_transaction()
 
         return self.success(data={"id": g.id})
 
@@ -318,7 +345,7 @@ class GroupHandler(BaseHandler):
             return self.error(
                 'Invalid/missing parameters: ' f'{e.normalized_messages()}'
             )
-        DBSession().commit()
+        self.finalize_transaction()
 
         return self.success(action='skyportal/FETCH_GROUPS')
 
@@ -359,7 +386,7 @@ class GroupHandler(BaseHandler):
                 "Insufficient permissions. You must either be a group admin or have higher site-wide permissions."
             )
         DBSession().delete(g)
-        DBSession().commit()
+        self.finalize_transaction()
 
         self.push_all(
             action='skyportal/REFRESH_GROUP', payload={'group_id': int(group_id)}
@@ -454,15 +481,24 @@ class GroupUserHandler(BaseHandler):
         )
         if gu is not None:
             return self.error("Specified user is already a member of this group.")
-        DBSession.add(GroupUser(group_id=group_id, user_id=user_id, admin=admin))
-        DBSession().commit()
+
+        DBSession().add(GroupUser(group_id=group_id, user_id=user_id, admin=admin))
+        DBSession().add(
+            UserNotification(
+                user=user,
+                text=f"You've been added to group *{group.name}*",
+                url=f"/group/{group.id}",
+            )
+        )
+        self.finalize_transaction()
+        self.flow.push(user.id, "skyportal/FETCH_NOTIFICATIONS", {})
 
         self.push_all(action='skyportal/REFRESH_GROUP', payload={'group_id': group_id})
         return self.success(
             data={'group_id': group_id, 'user_id': user_id, 'admin': admin}
         )
 
-    @permissions(["Manage users"])
+    @auth_or_token
     def patch(self, group_id, *ignored_args):
         """
         ---
@@ -500,6 +536,8 @@ class GroupUserHandler(BaseHandler):
             group_id = int(group_id)
         except ValueError:
             return self.error("Invalid group ID")
+        if not has_admin_access_for_group(self.associated_user_object, group_id):
+            return self.error("Insufficient permissions.")
         user_id = data.get("userID")
         try:
             user_id = int(user_id)
@@ -518,10 +556,10 @@ class GroupUserHandler(BaseHandler):
             return self.error("Missing required parameter: `admin`")
         admin = data.get("admin") in [True, "true", "True", "t", "T"]
         groupuser.admin = admin
-        DBSession().commit()
+        self.finalize_transaction()
         return self.success()
 
-    @permissions(["Manage users"])
+    @auth_or_token
     def delete(self, group_id, user_id):
         """
         ---
@@ -561,7 +599,7 @@ class GroupUserHandler(BaseHandler):
             .filter(GroupUser.user_id == user_id)
             .delete()
         )
-        DBSession().commit()
+        self.finalize_transaction()
         self.push_all(
             action='skyportal/REFRESH_GROUP', payload={'group_id': int(group_id)}
         )
@@ -629,11 +667,13 @@ class GroupUsersFromOtherGroupsHandler(BaseHandler):
         if len(from_groups) != len(set(from_group_ids)):
             return self.error("One or more invalid IDs in fromGroupIDs parameter.")
         user_ids = set()
-        for group in from_groups:
-            for user in group.users:
+        for from_group in from_groups:
+            for user in from_group.users:
                 # Ensure user has sufficient stream access to be added to group
-                if group.streams:
-                    if not all([stream in user.streams for stream in group.streams]):
+                if from_group.streams:
+                    if not all(
+                        [stream in user.streams for stream in from_group.streams]
+                    ):
                         return self.error(
                             "Not all users have sufficient stream access "
                             "to be added to this group."
@@ -648,13 +688,22 @@ class GroupUsersFromOtherGroupsHandler(BaseHandler):
                 .first()
             )
             if gu is None:
-                DBSession.add(
+                DBSession().add(
                     GroupUser(group_id=group_id, user_id=user_id, admin=False)
                 )
+                DBSession().add(
+                    UserNotification(
+                        user_id=user_id,
+                        text=f"You've been added to group *{group.name}*",
+                        url=f"/group/{group.id}",
+                    )
+                )
 
-        DBSession().commit()
+        self.finalize_transaction()
 
         self.push_all(action='skyportal/REFRESH_GROUP', payload={'group_id': group_id})
+        for user_id in user_ids:
+            self.flow.push(user_id, "skyportal/FETCH_NOTIFICATIONS", {})
         return self.success()
 
 
@@ -726,7 +775,7 @@ class GroupStreamHandler(BaseHandler):
             DBSession.add(GroupStream(group_id=group_id, stream_id=stream_id))
         else:
             return self.error("Specified stream is already associated with this group.")
-        DBSession().commit()
+        self.finalize_transaction()
 
         self.push_all(action='skyportal/REFRESH_GROUP', payload={'group_id': group_id})
         return self.success(data={'group_id': group_id, 'stream_id': stream_id})
@@ -766,7 +815,7 @@ class GroupStreamHandler(BaseHandler):
                 .filter(GroupStream.stream_id == stream_id)
                 .delete()
             )
-            DBSession().commit()
+            self.finalize_transaction()
             self.push_all(
                 action='skyportal/REFRESH_GROUP', payload={'group_id': int(group_id)}
             )
@@ -818,5 +867,5 @@ class ObjGroupsHandler(BaseHandler):
         )
         query = query.filter(or_(Source.requested.is_(True), Source.active.is_(True)))
         groups = [g.to_dict() for g in query.all()]
-
+        self.verify_permissions()
         return self.success(data=groups)

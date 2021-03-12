@@ -31,6 +31,7 @@ const useStyles = makeStyles((theme) => ({
 // Tweak responsive column widths
 const getMuiTheme = (theme) =>
   createMuiTheme({
+    palette: theme.palette,
     overrides: {
       MUIDataTableBodyCell: {
         root: {
@@ -42,6 +43,29 @@ const getMuiTheme = (theme) =>
       MuiIconButton: {
         root: {
           padding: "0.5rem",
+        },
+      },
+      MUIDataTablePagination: {
+        toolbar: {
+          flexFlow: "row wrap",
+          justifyContent: "flex-end",
+          padding: "0.5rem 1rem 0",
+          [theme.breakpoints.up("sm")]: {
+            // Cancel out small screen styling and replace
+            padding: "0px",
+            paddingRight: "2px",
+            flexFlow: "row nowrap",
+          },
+        },
+        tableCellContainer: {
+          padding: "1rem",
+        },
+        selectRoot: {
+          marginRight: "0.5rem",
+          [theme.breakpoints.up("sm")]: {
+            marginLeft: "0",
+            marginRight: "2rem",
+          },
         },
       },
     },

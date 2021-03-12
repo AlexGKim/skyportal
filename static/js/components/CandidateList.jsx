@@ -26,6 +26,7 @@ import HelpOutlineIcon from "@material-ui/icons/HelpOutline";
 import Form from "@rjsf/material-ui";
 import MUIDataTable from "mui-datatables";
 
+import { showNotification } from "baselayer/components/Notifications";
 import * as candidatesActions from "../ducks/candidates";
 import ThumbnailList from "./ThumbnailList";
 import SaveCandidateButton from "./SaveCandidateButton";
@@ -122,7 +123,6 @@ const useStyles = makeStyles((theme) => ({
     alignItems: "center",
   },
   idButton: {
-    // color: theme.palette.primary.main,
     textTransform: "none",
     marginBottom: theme.spacing(1),
   },
@@ -148,6 +148,70 @@ const getMuiTheme = (theme) =>
             display: "none",
             overflowWrap: "break-word",
           },
+        },
+      },
+      MUIDataTablePagination: {
+        toolbar: {
+          flexFlow: "row wrap",
+          justifyContent: "flex-end",
+          padding: "0.5rem 1rem 0",
+          [theme.breakpoints.up("sm")]: {
+            // Cancel out small screen styling and replace
+            padding: "0px",
+            paddingRight: "2px",
+            flexFlow: "row nowrap",
+          },
+        },
+        navContainer: {
+          flexDirection: "column",
+          alignItems: "center",
+          [theme.breakpoints.up("sm")]: {
+            flexDirection: "row",
+          },
+        },
+        selectRoot: {
+          marginRight: "0.5rem",
+          [theme.breakpoints.up("sm")]: {
+            marginLeft: "0",
+            marginRight: "2rem",
+          },
+        },
+      },
+      MUIDataTableToolbar: {
+        filterPaper: {
+          // Use fullscreen dialog for small-screen filter form
+          width: "100%",
+          maxWidth: "100%",
+          margin: 0,
+          maxHeight: "calc(100vh - 1rem)",
+          borderRadius: 0,
+          top: "0 !important",
+          left: "0 !important",
+          [theme.breakpoints.up("md")]: {
+            // Override the overrides above for bigger screens
+            maxWidth: "25%",
+            top: "unset !important",
+            left: "unset !important",
+            float: "right",
+            position: "unset",
+            margin: "1rem",
+          },
+        },
+        filterCloseIcon: {
+          [theme.breakpoints.up("md")]: {
+            top: "1rem !important",
+            right: "1rem !important",
+          },
+        },
+      },
+      MUIDataTableFilter: {
+        root: {
+          maxHeight: "calc(100vh - 5rem)",
+        },
+      },
+      MUIDataTableFilterList: {
+        chip: {
+          maxWidth: "100%",
         },
       },
     },
@@ -266,10 +330,13 @@ CustomSortToolbar.defaultProps = {
   filterFormData: null,
 };
 
+const columnNames = ["Images", "Info", "Photometry", "Autoannotations"];
+
 const CandidateList = () => {
   const [queryInProgress, setQueryInProgress] = useState(false);
   const [rowsPerPage, setRowsPerPage] = useState(defaultNumPerPage);
   const [filterGroups, setFilterGroups] = useState([]);
+  const [viewColumns, setViewColumns] = useState(columnNames);
   // Maintain the three thumbnails in a row for larger screens
   const largeScreen = useMediaQuery((theme) => theme.breakpoints.up("md"));
   const thumbnailsMinWidth = largeScreen ? "30rem" : 0;
@@ -298,12 +365,6 @@ const CandidateList = () => {
   const allGroups = (useSelector((state) => state.groups.all) || []).filter(
     (g) => !g.single_user_group
   );
-
-  useEffect(() => {
-    if (userAccessibleGroups?.length && filterGroups.length === 0) {
-      setFilterGroups([...userAccessibleGroups]);
-    }
-  }, [setFilterGroups, filterGroups, userAccessibleGroups]);
 
   const availableAnnotationsInfo = useSelector(
     (state) => state.candidates.annotationsInfo
@@ -380,13 +441,12 @@ const CandidateList = () => {
     return returnObject;
   };
 
-  const filterAnnotationObjToChip = (annotationObj) => {
+  const filterAnnotationObjToChip = (annotationObj) =>
     // Convert an object representing an annotation filter to a formatted string
     // to be displayed by the MuiDataTable
-    return "value" in annotationObj
+    "value" in annotationObj
       ? `${annotationObj.key} (${annotationObj.origin}): ${annotationObj.value}`
       : `${annotationObj.key} (${annotationObj.origin}): ${annotationObj.min} - ${annotationObj.max}`;
-  };
 
   const handleFilterSubmit = async (filterListQueryString) => {
     setQueryInProgress(true);
@@ -425,6 +485,12 @@ const CandidateList = () => {
   };
 
   const handleFilterAdd = ({ formData }) => {
+    if (filterGroups.length === 0) {
+      dispatch(
+        showNotification("At least one program should be selected.", "warning")
+      );
+      return;
+    }
     // The key is actually a combination of `origin<>key`, so parse out the key part
     const key = formData.key.split("<>")[1];
     const annotationObj = { ...formData, key };
@@ -440,8 +506,31 @@ const CandidateList = () => {
     handleFilterSubmit(newFilterListQueryStrings.join());
   };
 
+  const [
+    ps1GenerationInProgressList,
+    setPS1GenerationInProgressList,
+  ] = useState([]);
+  const generatePS1Thumbnail = (objID) => {
+    setPS1GenerationInProgressList([...ps1GenerationInProgressList, objID]);
+    dispatch(candidatesActions.generatePS1Thumbnail(objID));
+  };
+
+  const handleViewColumnsChange = (changedColumn, action) => {
+    let selectedColumns = [];
+    if (action === "remove") {
+      selectedColumns = viewColumns.filter((col) => col !== changedColumn);
+    } else {
+      selectedColumns = [...viewColumns, changedColumn];
+    }
+    setViewColumns(selectedColumns);
+  };
+
   const renderThumbnails = (dataIndex) => {
     const candidateObj = candidates[dataIndex];
+    const hasPS1 = candidateObj.thumbnails.map((t) => t.type).includes("ps1");
+    const displayTypes = hasPS1
+      ? ["new", "ref", "sub", "sdss", "dr8", "ps1"]
+      : ["new", "ref", "sub", "sdss", "dr8"];
     return (
       <div className={classes.thumbnails}>
         <ThumbnailList
@@ -449,8 +538,21 @@ const CandidateList = () => {
           dec={candidateObj.dec}
           thumbnails={candidateObj.thumbnails}
           size="9rem"
-          displayTypes={["new", "ref", "sub", "sdss", "dr8"]}
+          displayTypes={displayTypes}
         />
+        {!hasPS1 && (
+          <Button
+            disabled={ps1GenerationInProgressList.includes(candidateObj.id)}
+            size="small"
+            variant="contained"
+            onClick={() => {
+              generatePS1Thumbnail(candidateObj.id);
+            }}
+            data-testid={`generatePS1Button${candidateObj.id}`}
+          >
+            Generate PS1 Cutout
+          </Button>
+        )}
       </div>
     );
   };
@@ -521,14 +623,44 @@ const CandidateList = () => {
               label="NOT SAVED"
               className={classes.itemPaddingBottom}
             />
-            <br />
-            <div className={classes.saveCandidateButton}>
-              <SaveCandidateButton
-                candidate={candidateObj}
-                userGroups={userAccessibleGroups}
-                filterGroups={filterGroups}
-              />
-            </div>
+          </div>
+        )}
+        {/* If candidate is either unsaved or is not yet saved to all groups being filtered on, show the "Save to..." button */}
+        {Boolean(
+          !candidateObj.is_source ||
+            (candidateObj.is_source &&
+              filterGroups.filter(
+                (g) =>
+                  !candidateObj.saved_groups.map((x) => x.id).includes(g.id)
+              ).length)
+        ) && (
+          // eslint-disable-next-line react/jsx-indent
+          <div className={classes.saveCandidateButton}>
+            <SaveCandidateButton
+              candidate={candidateObj}
+              userGroups={
+                // Filter out groups the candidate is already saved to
+                candidateObj.is_source
+                  ? userAccessibleGroups.filter(
+                      (g) =>
+                        !candidateObj.saved_groups
+                          .map((x) => x.id)
+                          .includes(g.id)
+                    )
+                  : userAccessibleGroups
+              }
+              filterGroups={
+                // Filter out groups the candidate is already saved to
+                candidateObj.is_source
+                  ? filterGroups.filter(
+                      (g) =>
+                        !candidateObj.saved_groups
+                          .map((x) => x.id)
+                          .includes(g.id)
+                    )
+                  : filterGroups
+              }
+            />
           </div>
         )}
         {candidateObj.last_detected_at && (
@@ -615,49 +747,46 @@ const CandidateList = () => {
     );
   };
 
-  const renderAutoannotationsHeader = () => {
-    return (
-      <div>
-        Autoannotations
-        <IconButton
-          aria-label="help"
-          size="small"
-          onClick={handleClickAnnotationsHelp}
-          className={classes.helpButton}
+  const renderAutoannotationsHeader = () => (
+    <div>
+      Autoannotations
+      <IconButton
+        aria-label="help"
+        size="small"
+        onClick={handleClickAnnotationsHelp}
+        className={classes.helpButton}
+      >
+        <HelpOutlineIcon />
+      </IconButton>
+      <MuiThemeProvider theme={getMuiPopoverTheme(theme)}>
+        <Popover
+          id={annotationsHelpId}
+          open={annotationsHelpOpen}
+          anchorEl={annotationsHeaderAnchor}
+          onClose={handleCloseAnnotationsHelp}
+          className={classes.helpPopover}
+          anchorOrigin={{
+            vertical: "top",
+            horizontal: "right",
+          }}
+          transformOrigin={{
+            vertical: "top",
+            horizontal: "left",
+          }}
         >
-          <HelpOutlineIcon />
-        </IconButton>
-        <MuiThemeProvider theme={getMuiPopoverTheme(theme)}>
-          <Popover
-            id={annotationsHelpId}
-            open={annotationsHelpOpen}
-            anchorEl={annotationsHeaderAnchor}
-            onClose={handleCloseAnnotationsHelp}
-            className={classes.helpPopover}
-            anchorOrigin={{
-              vertical: "top",
-              horizontal: "right",
-            }}
-            transformOrigin={{
-              vertical: "top",
-              horizontal: "left",
-            }}
-          >
-            <Typography className={classes.typography}>
-              Annotation fields are uniquely identified by the combination of
-              origin and key. That is, if two annotation values belong to a key
-              with the same name will be considered different if they come from
-              different origins. <br />
-              <b>Sorting: </b> Clicking on an annotation field will display it,
-              if available, in the Info column. You can then click on the sort
-              tool button at the top of the table to sort on that annotation
-              field.
-            </Typography>
-          </Popover>
-        </MuiThemeProvider>
-      </div>
-    );
-  };
+          <Typography className={classes.typography}>
+            Annotation fields are uniquely identified by the combination of
+            origin and key. That is, if two annotation values belong to a key
+            with the same name will be considered different if they come from
+            different origins. <br />
+            <b>Sorting: </b> Clicking on an annotation field will display it, if
+            available, in the Info column. You can then click on the sort tool
+            button at the top of the table to sort on that annotation field.
+          </Typography>
+        </Popover>
+      </MuiThemeProvider>
+    </div>
+  );
 
   const handlePageChange = async (page, numPerPage) => {
     setQueryInProgress(true);
@@ -818,21 +947,21 @@ const CandidateList = () => {
     });
   }
 
-  const annotationsFilterDisplay = () => {
-    return !queryInProgress ? (
+  const annotationsFilterDisplay = () =>
+    !queryInProgress ? (
       <div>
         <Form schema={filterFormSchema} onSubmit={handleFilterAdd} />
       </div>
     ) : (
       <div />
     );
-  };
 
   const columns = [
     {
       name: "Images",
       label: "Images",
       options: {
+        display: viewColumns.includes("Images"),
         customBodyRenderLite: renderThumbnails,
         sort: false,
         filter: false,
@@ -842,6 +971,7 @@ const CandidateList = () => {
       name: "Info",
       label: "Info",
       options: {
+        display: viewColumns.includes("Info"),
         customBodyRenderLite: renderInfo,
         filter: false,
       },
@@ -850,6 +980,7 @@ const CandidateList = () => {
       name: "Photometry",
       label: "Photometry",
       options: {
+        display: viewColumns.includes("Photometry"),
         customBodyRenderLite: renderPhotometry,
         sort: false,
         filter: false,
@@ -859,6 +990,7 @@ const CandidateList = () => {
       name: "Autoannotations",
       label: "Autoannotations",
       options: {
+        display: viewColumns.includes("Autoannotations"),
         customBodyRenderLite: renderAutoannotations,
         sort: false,
         filter: !queryInProgress,
@@ -904,6 +1036,7 @@ const CandidateList = () => {
       />
     ),
     onFilterChange: handleTableFilterChipChange,
+    onViewColumnsChange: handleViewColumnsChange,
   };
 
   return (
@@ -917,6 +1050,7 @@ const CandidateList = () => {
           setQueryInProgress={setQueryInProgress}
           setFilterGroups={setFilterGroups}
           numPerPage={rowsPerPage}
+          annotationFilterList={filterListQueryStrings.join()}
         />
         <Box
           display={queryInProgress ? "block" : "none"}

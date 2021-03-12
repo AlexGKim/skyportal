@@ -107,6 +107,7 @@ const FilterCandidateList = ({
   setQueryInProgress,
   setFilterGroups,
   numPerPage,
+  annotationFilterList,
 }) => {
   const classes = useStyles();
   const theme = useTheme();
@@ -150,9 +151,24 @@ const FilterCandidateList = ({
       startDate: defaultStartDate,
       endDate: defaultEndDate,
     });
+    // Don't want to reset everytime the component rerenders and
+    // the defaultStartDate is updated, so ignore ESLint here
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reset, userAccessibleGroups]);
 
   const dispatch = useDispatch();
+  // Set initial form values in the redux state
+  useEffect(() => {
+    dispatch(
+      candidatesActions.setFilterFormData({
+        savedStatus: "all",
+        startDate: defaultStartDate.toISOString(),
+      })
+    );
+    // Don't want to reset everytime the component rerenders and
+    // the defaultStartDate is updated, so ignore ESLint here
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dispatch]);
 
   let formState = getValues({ nest: true });
 
@@ -192,6 +208,9 @@ const FilterCandidateList = ({
     if (formData.redshiftMinimum && formData.redshiftMaximum) {
       data.redshiftRange = `(${formData.redshiftMinimum},${formData.redshiftMaximum})`;
     }
+    if (annotationFilterList) {
+      data.annotationFilterList = annotationFilterList;
+    }
     setFilterGroups(
       userAccessibleGroups.filter((g) => selectedGroupIDs.includes(g.id))
     );
@@ -215,8 +234,10 @@ const FilterCandidateList = ({
             <Controller
               render={({ onChange, value }) => (
                 <KeyboardDateTimePicker
-                  value={dayjs.utc(value)}
-                  onChange={(e, date) => onChange(dayjs.utc(date))}
+                  value={value ? dayjs.utc(value) : null}
+                  onChange={(e, date) =>
+                    date ? onChange(dayjs.utc(date)) : onChange(date)
+                  }
                   label="Start (UTC)"
                   format="YYYY/MM/DD HH:mm"
                   ampm={false}
@@ -234,7 +255,9 @@ const FilterCandidateList = ({
               render={({ onChange, value }) => (
                 <KeyboardDateTimePicker
                   value={value ? dayjs.utc(value) : null}
-                  onChange={(e, date) => onChange(dayjs.utc(date))}
+                  onChange={(e, date) =>
+                    date ? onChange(dayjs.utc(date)) : onChange(date)
+                  }
                   label="End (UTC)"
                   format="YYYY/MM/DD HH:mm"
                   ampm={false}
@@ -381,7 +404,21 @@ const FilterCandidateList = ({
                     <Controller
                       render={({ onChange, value }) => (
                         <Checkbox
-                          onChange={(event) => onChange(event.target.checked)}
+                          onChange={(event) => {
+                            onChange(event.target.checked);
+                            // Let parent component know program selection has changed
+                            const groupIDs = userAccessibleGroups.map(
+                              (g) => g.id
+                            );
+                            const selectedGroupIDs = groupIDs.filter(
+                              (ID, i) => getValues({ nest: true }).groupIDs[i]
+                            );
+                            setFilterGroups(
+                              userAccessibleGroups.filter((g) =>
+                                selectedGroupIDs.includes(g.id)
+                              )
+                            );
+                          }}
                           checked={value}
                           data-testid={`filteringFormGroupCheckbox-${group.id}`}
                         />
@@ -419,6 +456,10 @@ FilterCandidateList.propTypes = {
   setQueryInProgress: PropTypes.func.isRequired,
   setFilterGroups: PropTypes.func.isRequired,
   numPerPage: PropTypes.number.isRequired,
+  annotationFilterList: PropTypes.string,
+};
+FilterCandidateList.defaultProps = {
+  annotationFilterList: null,
 };
 
 export default FilterCandidateList;
