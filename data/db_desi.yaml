@@ -26,17 +26,15 @@ streams:
     =id: desi_private
 
 groups:
-  - name: DESI_Test1
-    =id: DESI_Test1
-  - name: Wayne_State
+  - name: Wayne State
     =id: Wayne_State
-  - name: DESITRIP_daily
+  - name: DESITRIP daily
     =id: DESITRIP_daily_G
-  - name: DESIDIFF_CV_daily
+  - name: DESIDIFF CV daily
     =id: DESIDIFF_CV_daily_G
   - name: ANTARES
     =id: ANTARES_G
-  - name: MOST_Hosts
+  - name: MOST Hosts
     =id: MOST_Hosts_G
   - name: ZTF
     =id: ZTF_G
@@ -57,11 +55,11 @@ groups/=ZTF_G/streams:
   - stream_id: =desi_private
 
 filters:
-  - name: DESITRIP_daily
+  - name: DESITRIP daily
     group_id: =DESITRIP_daily_G
     stream_id: =desi_private
     =id: DESITRIP_daily
-  - name: DESIDIFF_CV_daily
+  - name: DESIDIFF CV daily
     group_id: =DESIDIFF_CV_daily_G
     stream_id: =desi_private
     =id: DESIDIFF_CV_daily
@@ -69,7 +67,7 @@ filters:
     group_id: ANTARES_G
     stream_id: =ztf_public
     =id: ANTARES
-  - name: MOST_Hosts
+  - name: MOST Hosts
     group_id: MOST_Hosts_G
     stream_id: = MOST_Hosts
     =id: MOST_Hosts
