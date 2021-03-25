@@ -68,3 +68,8 @@ http://desi2.lbl.gov:5000/become_user/1
 
 Make someone superadmin
  INSERT INTO user_roles (created_at, modified, user_id, role_id) VALUES (now(), now(), [target_user_id], 'Super admin'); 
+
+
+#### Upgrading SkyPortal
+
+make dependencies
