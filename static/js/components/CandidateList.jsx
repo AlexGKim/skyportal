@@ -250,12 +250,11 @@ const CustomSortToolbar = ({
   filterFormData,
   setQueryInProgress,
   loaded,
+  sortOrder,
+  setSortOrder,
 }) => {
   const classes = useStyles();
 
-  const [sortOrder, setSortOrder] = useState(
-    selectedAnnotationSortOptions ? selectedAnnotationSortOptions.order : null
-  );
   const dispatch = useDispatch();
 
   const handleSort = async () => {
@@ -324,11 +323,14 @@ CustomSortToolbar.propTypes = {
   filterGroups: PropTypes.arrayOf(PropTypes.shape({})).isRequired,
   filterFormData: PropTypes.shape({}),
   loaded: PropTypes.bool.isRequired,
+  sortOrder: PropTypes.string,
+  setSortOrder: PropTypes.func.isRequired,
 };
 
 CustomSortToolbar.defaultProps = {
   selectedAnnotationSortOptions: null,
   filterFormData: null,
+  sortOrder: null,
 };
 
 const columnNames = ["Images", "Info", "Photometry", "Autoannotations"];
@@ -359,6 +361,9 @@ const CandidateList = () => {
     totalMatches,
     selectedAnnotationSortOptions,
   } = useSelector((state) => state.candidates);
+  const [sortOrder, setSortOrder] = useState(
+    selectedAnnotationSortOptions ? selectedAnnotationSortOptions.order : null
+  );
 
   const userAccessibleGroups = useSelector(
     (state) => state.groups.userAccessible
@@ -779,12 +784,22 @@ const CandidateList = () => {
         >
           <Typography className={classes.typography}>
             Annotation fields are uniquely identified by the combination of
-            origin and key. That is, if two annotation values belong to a key
+            origin and key. That is, two annotation values belonging to a key
             with the same name will be considered different if they come from
             different origins. <br />
             <b>Sorting: </b> Clicking on an annotation field will display it, if
             available, in the Info column. You can then click on the sort tool
             button at the top of the table to sort on that annotation field.
+            <br />
+            <b>Filtering: </b> Filtering on annotations is available through the
+            filtering tool at the top right of the table. <br />
+            <i>
+              Warning: applying multiple filters on annotations from different
+              origins is not supported currently and will return zero results.
+              For example, you cannot filter for a specific annotation value in
+              annotations from both &quot;origin_a&quot; and
+              &quot;origin_b&quot; at the same time.
+            </i>
           </Typography>
         </Popover>
       </MuiThemeProvider>
@@ -1036,6 +1051,8 @@ const CandidateList = () => {
         filterFormData={filterFormData}
         setQueryInProgress={setQueryInProgress}
         loaded={!queryInProgress}
+        sortOrder={sortOrder}
+        setSortOrder={setSortOrder}
       />
     ),
     onFilterChange: handleTableFilterChipChange,
@@ -1054,6 +1071,7 @@ const CandidateList = () => {
           setFilterGroups={setFilterGroups}
           numPerPage={rowsPerPage}
           annotationFilterList={filterListQueryStrings.join()}
+          setSortOrder={setSortOrder}
         />
         <Box
           display={queryInProgress ? "block" : "none"}
