@@ -330,6 +330,15 @@ def public_ZTF20acgrjqm(public_group):
 
 
 @pytest.fixture()
+def public_ZTF21aaeyldq(public_group):
+    obj = ObjFactory(groups=[public_group], ra=123.813909, dec=-5.867007)
+    DBSession().add(Source(obj_id=obj.id, group_id=public_group.id))
+    DBSession().commit()
+    yield obj
+    ObjFactory.teardown(obj)
+
+
+@pytest.fixture()
 def public_source(public_group):
     obj = ObjFactory(groups=[public_group])
     source = Source(obj_id=obj.id, group_id=public_group.id)
@@ -649,6 +658,18 @@ def user(public_group, public_stream):
 
 
 @pytest.fixture()
+def user_stream2_only(public_group, public_stream2):
+    user = UserFactory(
+        groups=[public_group],
+        roles=[models.Role.query.get("Full user")],
+        streams=[public_stream2],
+    )
+    user_id = user.id
+    yield user
+    UserFactory.teardown(user_id)
+
+
+@pytest.fixture()
 def user_group2(public_group2, public_stream):
     user = UserFactory(
         groups=[public_group2],
@@ -695,11 +716,78 @@ def user_no_groups(public_stream):
 
 
 @pytest.fixture()
+def user_no_groups_two_streams(public_stream, public_stream2):
+    user = UserFactory(
+        roles=[models.Role.query.get("Full user")],
+        streams=[public_stream, public_stream2],
+    )
+    user_id = user.id
+    yield user
+    UserFactory.teardown(user_id)
+
+
+@pytest.fixture()
 def user_no_groups_no_streams():
     user = UserFactory(roles=[models.Role.query.get("Full user")], streams=[])
     user_id = user.id
     yield user
     UserFactory.teardown(user_id)
+
+
+@pytest.fixture()
+def view_only_token_no_groups(user_no_groups):
+    token_id = create_token(ACLs=[], user_id=user_no_groups.id, name=str(uuid.uuid4()))
+    yield token_id
+    delete_token(token_id)
+
+
+@pytest.fixture()
+def upload_data_token_stream2(user_stream2_only):
+    token_id = create_token(
+        ACLs=["Upload data"], user_id=user_stream2_only.id, name=str(uuid.uuid4())
+    )
+    yield token_id
+    delete_token(token_id)
+
+
+@pytest.fixture()
+def view_only_token_no_groups_no_streams(user_no_groups_no_streams):
+    token_id = create_token(
+        ACLs=[], user_id=user_no_groups_no_streams.id, name=str(uuid.uuid4())
+    )
+    yield token_id
+    delete_token(token_id)
+
+
+@pytest.fixture()
+def upload_data_token_no_groups(user_no_groups):
+    token_id = create_token(
+        ACLs=["Upload data"], user_id=user_no_groups.id, name=str(uuid.uuid4())
+    )
+    yield token_id
+    delete_token(token_id)
+
+
+@pytest.fixture()
+def upload_data_token_no_groups_two_streams(user_no_groups_two_streams):
+    token_id = create_token(
+        ACLs=["Upload data"],
+        user_id=user_no_groups_two_streams.id,
+        name=str(uuid.uuid4()),
+    )
+    yield token_id
+    delete_token(token_id)
+
+
+@pytest.fixture()
+def upload_data_token_no_groups_no_streams(user_no_groups_no_streams):
+    token_id = create_token(
+        ACLs=["Upload data"],
+        user_id=user_no_groups_no_streams.id,
+        name=str(uuid.uuid4()),
+    )
+    yield token_id
+    delete_token(token_id)
 
 
 @pytest.fixture()
