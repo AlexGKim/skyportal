@@ -1,0 +1,21 @@
+1. Stop app
+2. checkout new SP
+3. git submodule update
+4. make run
+
+
+@AlexGKim Also, be sure not to accidentally run the revision --autogenerate command instead of the upgrade command -- there were several empty migration scripts in your alembic versions directory that looked like they probably came from that, which contributed to the conflicting heads. The revision --autogenerate is just for creating a new migration script to accompany new changes you may have made to the DB schema manually, which I don't imagine will apply in your use case. If any of this is not clear from the docs, let us know, and we'll be sure to clarify further. Thanks
+
+Hi Alex, the migration manager (in baselayer) should actually take care of
+applying migrations for you automatically, but I'd recommend stopping the
+app before pulling in a new SP version and running it again, as any
+in-progress DB transactions could interfere with the migration process.
+There seemed to be a couple of merges in the alembic history, which
+hopefully won't ever be necessary -- I'd recommend against that. Now that
+the DB is already stamped, you shouldn't need to ever run the stamp command
+again; just stop the app, checkout the new SP version (followed by ` git
+submodule update` to pull in any pinned baselayer updates), and then when
+you `make run` again, the migration manager should take care of any pending
+migrations. (Alternatively, you can manually run the `... upgrade head`
+command, then when that's completed successfully, start the app back up)
+
